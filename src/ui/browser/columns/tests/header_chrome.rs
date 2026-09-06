@@ -13,13 +13,13 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 #[test]
-fn miller_header_actions_expand_for_hover_or_active_or_focus() {
-    assert!(!miller_header_actions_expanded(0, None, Some(2), Some(2)));
-    assert!(!miller_header_actions_expanded(1, None, Some(2), Some(2)));
-    assert!(miller_header_actions_expanded(2, None, Some(2), Some(2)));
-    assert!(miller_header_actions_expanded(0, Some(0), Some(2), Some(2)));
-    assert!(miller_header_actions_expanded(1, None, Some(1), None));
-    assert!(miller_header_actions_expanded(0, None, None, Some(0)));
+fn miller_header_actions_follow_the_active_column() {
+    assert!(!miller_header_actions_expanded(0, Some(2), Some(2)));
+    assert!(!miller_header_actions_expanded(1, Some(2), Some(2)));
+    assert!(miller_header_actions_expanded(2, Some(2), Some(2)));
+    assert!(!miller_header_actions_expanded(0, Some(2), Some(1)));
+    assert!(miller_header_actions_expanded(1, Some(1), None));
+    assert!(miller_header_actions_expanded(0, None, Some(0)));
 }
 
 fn wait_until(condition: impl Fn() -> bool) {
@@ -97,11 +97,9 @@ fn inactive_miller_columns_collapse_header_actions_instantly() {
 
             view.state.hovered_column.set(Some(0));
             view.state.refresh_destination_style();
-            let hovered = chrome_state(&view, 0);
-            let still_active = chrome_state(&view, 2);
-            assert!(hovered.0 && !hovered.1);
-            assert!(still_active.0 && !still_active.1);
+            assert!(!chrome_state(&view, 0).0 && chrome_state(&view, 0).1);
             assert!(!chrome_state(&view, 1).0 && chrome_state(&view, 1).1);
+            assert!(chrome_state(&view, 2).0 && !chrome_state(&view, 2).1);
 
             view.state.hovered_column.set(None);
             view.state.refresh_destination_style();

@@ -226,11 +226,10 @@ fn should_preserve_drag_selection(clicked_selected: bool, selected_count: u64) -
 
 pub(super) fn miller_header_actions_expanded(
     depth: usize,
-    hovered: Option<usize>,
     active: Option<usize>,
     focused: Option<usize>,
 ) -> bool {
-    hovered == Some(depth) || active == Some(depth) || focused == Some(depth)
+    Some(depth) == active.or(focused)
 }
 
 pub(super) fn update_empty_trash_sensitivity(column: &ColumnView, count: usize) {
@@ -586,7 +585,6 @@ impl ViewState {
             .update_property(&[gtk::accessible::Property::Label("Column actions")]);
         let expanded = miller_header_actions_expanded(
             depth,
-            self.hovered_column.get(),
             self.browser.active_depth(),
             self.focused_column_depth(),
         );

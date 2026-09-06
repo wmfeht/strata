@@ -1358,12 +1358,8 @@ impl ViewState {
             } else {
                 "Keyboard · Paste here"
             });
-            let expanded = miller_header_actions_expanded(
-                depth,
-                self.hovered_column.get(),
-                self.browser.active_depth(),
-                focused_column,
-            );
+            let expanded =
+                miller_header_actions_expanded(depth, self.browser.active_depth(), focused_column);
             column.header_actions.set_visible(expanded);
             column.header_actions_overflow.set_visible(!expanded);
         }
