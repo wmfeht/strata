@@ -13,7 +13,8 @@
 - Agents must never run GTK tests against the user's active Wayland or X11 display. Run the suite under a private Xvfb display with accessibility bridging disabled:
 
   ```bash
-  xvfb-run -a env GTK_A11Y=none NO_AT_BRIDGE=1 \
+  xvfb-run -a env -u WAYLAND_DISPLAY GDK_BACKEND=x11 \
+    GTK_A11Y=none NO_AT_BRIDGE=1 STRATA_REQUIRE_GTK_TESTS=1 \
     cargo test --all-targets --all-features
   ```
 
