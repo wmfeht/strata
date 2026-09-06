@@ -1769,7 +1769,7 @@ async fn write_staged_archive<F>(
 where
     F: FnOnce(std::fs::File) -> Result<(), String> + Send + 'static,
 {
-    let existing_permissions = if conflict == TransferConflict::ReplaceExisting {
+    let published_permissions = if conflict == TransferConflict::ReplaceExisting {
         match std::fs::symlink_metadata(archive_path) {
             Ok(metadata) if metadata.file_type().is_file() => Some(metadata.permissions()),
             Ok(_) => None,
@@ -1778,11 +1778,12 @@ where
         }
     } else {
         None
-    };
+    }
+    .unwrap_or_else(umask_adjusted_file_permissions);
     let mut builder = tempfile::Builder::new();
     builder
         .prefix(".strata-compression-")
-        .permissions(std::fs::Permissions::from_mode(0o666));
+        .permissions(std::fs::Permissions::from_mode(0o600));
     let staged = builder
         .tempfile_in(destination)
         .map_err(|error| error.to_string())?;
@@ -1790,18 +1791,33 @@ where
     gio::spawn_blocking(move || write_archive(file))
         .await
         .map_err(|_| "Compression task panicked".to_owned())??;
-    if let Some(permissions) = existing_permissions {
-        staged
-            .as_file()
-            .set_permissions(permissions)
-            .map_err(|error| error.to_string())?;
-    }
+    staged
+        .as_file()
+        .set_permissions(published_permissions)
+        .map_err(|error| error.to_string())?;
     match conflict {
         TransferConflict::FailIfExists => staged.persist_noclobber(archive_path),
         TransferConflict::ReplaceExisting => staged.persist(archive_path),
     }
     .map(|_| ())
     .map_err(|error| error.to_string())
+}
+
+fn umask_adjusted_file_permissions() -> std::fs::Permissions {
+    std::fs::Permissions::from_mode(0o666 & !process_umask())
+}
+
+fn process_umask() -> u32 {
+    // /proc avoids the process-global umask(2) set-and-restore race in a GUI.
+    std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|status| {
+            status.lines().find_map(|line| {
+                line.strip_prefix("Umask:")
+                    .and_then(|value| u32::from_str_radix(value.trim(), 8).ok())
+            })
+        })
+        .unwrap_or(0o022)
 }
 
 fn deletion_error_summary(errors: &[String]) -> String {

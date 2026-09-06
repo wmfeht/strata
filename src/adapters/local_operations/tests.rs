@@ -26,8 +26,8 @@ use super::{
     copy_new_recursively, copy_new_remote_file_with, copy_recursively, deletion_error_message,
     deletion_error_summary, duplicate_candidate_name, extract_7z_from_reader, extract_tar,
     extract_zip_from_archive, home_trash_entries_at, io_error, is_trash_unsupported_failure,
-    move_local, move_local_with, operation_error_summary, parse_copy_suffix, replace_local,
-    replace_local_with, transfer_is_noop, validated_archive_path, validated_child,
+    move_local, move_local_with, operation_error_summary, parse_copy_suffix, process_umask,
+    replace_local, replace_local_with, transfer_is_noop, validated_archive_path, validated_child,
     write_staged_archive,
 };
 use crate::{
@@ -1071,6 +1071,31 @@ fn compression_stages(destination: &Path) -> Result<Vec<OsString>, Box<dyn Error
         .collect())
 }
 
+fn compression_stage_mode(destination: &Path) -> Result<u32, Box<dyn Error>> {
+    let mut stages = compression_stages(destination)?;
+    let name = stages.pop().ok_or("no compression staging file")?;
+    if !stages.is_empty() {
+        return Err("expected a single compression staging file".into());
+    }
+    Ok(fs::metadata(destination.join(name))?.permissions().mode() & 0o777)
+}
+
+struct UmaskGuard(rustix::fs::Mode);
+
+impl UmaskGuard {
+    fn set(mask: u32) -> Self {
+        Self(rustix::process::umask(
+            rustix::fs::Mode::from_bits_truncate(mask),
+        ))
+    }
+}
+
+impl Drop for UmaskGuard {
+    fn drop(&mut self) {
+        rustix::process::umask(self.0);
+    }
+}
+
 #[test]
 fn compression_provider_rejects_escaping_archive_names() -> Result<(), Box<dyn Error>> {
     let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
@@ -1144,6 +1169,104 @@ fn compression_conflict_choices_preserve_or_replace_the_destination() -> Result<
         Some("source.txt".to_owned())
     );
     assert_eq!(fs::metadata(&archive)?.permissions().mode() & 0o777, 0o640);
+    assert!(compression_stages(&destination)?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn compression_staging_stays_private_while_encoding() -> Result<(), Box<dyn Error>> {
+    let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let _umask = UmaskGuard::set(0o022);
+    assert_eq!(process_umask(), 0o022);
+    let root = tempfile::tempdir()?;
+    let destination = root.path().to_path_buf();
+    let archive = destination.join("existing.zip");
+    fs::write(&archive, b"original")?;
+    fs::set_permissions(&archive, fs::Permissions::from_mode(0o640))?;
+    let started = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    let worker_started = started.clone();
+    let worker_release = release.clone();
+    let worker_destination = destination.clone();
+    let worker_archive = archive.clone();
+    let task = glib::MainContext::default().spawn_local(async move {
+        write_staged_archive(
+            &worker_destination,
+            &worker_archive,
+            TransferConflict::ReplaceExisting,
+            move |mut file| {
+                file.write_all(b"replacement")
+                    .map_err(|error| error.to_string())?;
+                worker_started.store(true, Ordering::Release);
+                while !worker_release.load(Ordering::Acquire) {
+                    std::thread::yield_now();
+                }
+                Ok(())
+            },
+        )
+        .await
+    });
+    let context = glib::MainContext::default();
+    while !started.load(Ordering::Acquire) {
+        context.iteration(false);
+        std::thread::yield_now();
+    }
+    assert_eq!(compression_stage_mode(&destination)?, 0o600);
+
+    release.store(true, Ordering::Release);
+    assert_eq!(context.block_on(task)?, Ok(()));
+    assert_eq!(fs::read(&archive)?, b"replacement");
+    assert_eq!(fs::metadata(&archive)?.permissions().mode() & 0o777, 0o640);
+    assert!(compression_stages(&destination)?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn new_archive_staging_stays_private_until_publish() -> Result<(), Box<dyn Error>> {
+    let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let _umask = UmaskGuard::set(0o022);
+    assert_eq!(process_umask(), 0o022);
+    let root = tempfile::tempdir()?;
+    let destination = root.path().to_path_buf();
+    let archive = destination.join("created.zip");
+    let started = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    let worker_started = started.clone();
+    let worker_release = release.clone();
+    let worker_destination = destination.clone();
+    let worker_archive = archive.clone();
+    let task = glib::MainContext::default().spawn_local(async move {
+        write_staged_archive(
+            &worker_destination,
+            &worker_archive,
+            TransferConflict::FailIfExists,
+            move |mut file| {
+                file.write_all(b"created")
+                    .map_err(|error| error.to_string())?;
+                worker_started.store(true, Ordering::Release);
+                while !worker_release.load(Ordering::Acquire) {
+                    std::thread::yield_now();
+                }
+                Ok(())
+            },
+        )
+        .await
+    });
+    let context = glib::MainContext::default();
+    while !started.load(Ordering::Acquire) {
+        context.iteration(false);
+        std::thread::yield_now();
+    }
+    assert_eq!(compression_stage_mode(&destination)?, 0o600);
+
+    release.store(true, Ordering::Release);
+    assert_eq!(context.block_on(task)?, Ok(()));
+    assert_eq!(fs::read(&archive)?, b"created");
+    assert_eq!(fs::metadata(&archive)?.permissions().mode() & 0o777, 0o644);
     assert!(compression_stages(&destination)?.is_empty());
     Ok(())
 }
