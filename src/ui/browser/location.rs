@@ -431,7 +431,7 @@ impl ViewState {
         self.location_entry.select_region(0, -1);
     }
 
-    pub(super) fn cancel_location_edit(&self) {
+    pub(super) fn cancel_location_edit(self: &Rc<Self>) {
         self.restore_location_text();
         self.location_stack.set_visible_child_name("breadcrumbs");
         self.browser.focus_active();
@@ -781,16 +781,29 @@ impl ViewState {
         });
     }
 
-    fn restore_location_text(&self) {
-        if let Some(location) = self.browser.active_location() {
-            self.location_entry.set_text(&location.display_path());
-        }
-    }
-
-    pub(super) fn sync_active_location(self: &Rc<Self>) {
+    fn restore_location_text(self: &Rc<Self>) {
         if let Some(location) = self.browser.active_location() {
             self.set_location(&location);
         }
+    }
+
+    pub(super) fn follow_column(self: &Rc<Self>, depth: usize) {
+        self.browser.set_active_column(depth);
+        self.sync_active_location();
+    }
+
+    /// Address bar tracks the focused Miller column, not only the deepest open path.
+    pub(super) fn sync_active_location(self: &Rc<Self>) {
+        if self.location_stack.visible_child_name().as_deref() == Some("entry") {
+            return;
+        }
+        let Some(location) = self.browser.active_location() else {
+            return;
+        };
+        if self.location_entry.text().as_str() == location.display_path() {
+            return;
+        }
+        self.set_location(&location);
     }
 
     pub(super) fn set_location(self: &Rc<Self>, location: &Location) {
