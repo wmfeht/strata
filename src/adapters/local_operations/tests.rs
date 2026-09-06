@@ -22,11 +22,11 @@ use gtk::{gio, glib, prelude::*};
 use crate::test_support::ASYNC_MAIN_CONTEXT_DEFAULT;
 
 use super::{
-    ArchiveOutcome, LocalOperationProvider, TransferProgressTracker, await_cancellable,
-    copy_failure_after_cleanup, copy_new_recursively, copy_new_remote_file_with, copy_recursively,
-    copy_with_big_buf, deletion_error_message, deletion_error_summary, duplicate_candidate_name,
-    extract_7z_from_reader, extract_tar, extract_zip_from_archive, home_trash_entries_at, io_error,
-    is_archive_cancelled, is_trash_unsupported_failure, move_local, move_local_with,
+    ArchiveError, ArchiveOutcome, LocalOperationProvider, TransferProgressTracker,
+    await_cancellable, copy_failure_after_cleanup, copy_new_recursively, copy_new_remote_file_with,
+    copy_recursively, copy_with_big_buf, deletion_error_message, deletion_error_summary,
+    duplicate_candidate_name, extract_7z_from_reader, extract_tar, extract_zip_from_archive,
+    home_trash_entries_at, io_error, is_trash_unsupported_failure, move_local, move_local_with,
     operation_error_summary, parse_copy_suffix, process_umask, replace_local, replace_local_with,
     transfer_is_noop, validated_archive_path, validated_child, write_staged_archive,
 };
@@ -1196,6 +1196,7 @@ fn compression_staging_stays_private_while_encoding() -> Result<(), Box<dyn Erro
             &worker_destination,
             &worker_archive,
             TransferConflict::ReplaceExisting,
+            &never_cancelled(),
             move |mut file| {
                 file.write_all(b"replacement")
                     .map_err(|error| error.to_string())?;
@@ -1244,6 +1245,7 @@ fn compression_new_archive_staging_stays_private_until_publish() -> Result<(), B
             &worker_destination,
             &worker_archive,
             TransferConflict::FailIfExists,
+            &never_cancelled(),
             move |mut file| {
                 file.write_all(b"created")
                     .map_err(|error| error.to_string())?;
@@ -1405,6 +1407,7 @@ fn cancelling_staged_compression_unlinks_the_partial_output() -> Result<(), Box<
             &worker_destination,
             &worker_archive,
             TransferConflict::ReplaceExisting,
+            &never_cancelled(),
             move |mut file| {
                 file.write_all(b"partial")
                     .map_err(|error| error.to_string())?;
@@ -1442,6 +1445,43 @@ fn cancelling_staged_compression_unlinks_the_partial_output() -> Result<(), Box<
     Ok(())
 }
 
+#[test]
+fn write_staged_archive_does_not_publish_when_cancelled_after_write() -> Result<(), Box<dyn Error>>
+{
+    let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let root = tempfile::tempdir()?;
+    let destination = root.path().to_path_buf();
+    let archive = destination.join("existing.zip");
+    fs::write(&archive, b"original")?;
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let persist_cancelled = cancelled.clone();
+    let worker_cancelled = cancelled.clone();
+    let worker_destination = destination.clone();
+    let worker_archive = archive.clone();
+    let task = glib::MainContext::default().spawn_local(async move {
+        write_staged_archive(
+            &worker_destination,
+            &worker_archive,
+            TransferConflict::ReplaceExisting,
+            &persist_cancelled,
+            move |mut file| {
+                file.write_all(b"replacement")
+                    .map_err(|error| error.to_string())?;
+                worker_cancelled.store(true, Ordering::Release);
+                Ok(())
+            },
+        )
+        .await
+    });
+    let result = glib::MainContext::default().block_on(task)?;
+    assert!(matches!(result, Err(ArchiveError::Cancelled)));
+    assert_eq!(fs::read(&archive)?, b"original");
+    assert!(compression_stages(&destination)?.is_empty());
+    Ok(())
+}
+
 fn write_zip(path: &Path, entries: &[(&str, &[u8])]) -> Result<(), Box<dyn Error>> {
     let mut writer = zip::ZipWriter::new(fs::File::create(path)?);
     for (name, contents) in entries {
@@ -1468,34 +1508,56 @@ fn append_raw_tar_entry<W: Write>(
 }
 
 fn write_tar(path: &Path, name: &str, contents: &[u8], gzip: bool) -> Result<(), Box<dyn Error>> {
+    write_tar_entries(path, &[(name, contents)], gzip)
+}
+
+fn write_tar_entries(
+    path: &Path,
+    entries: &[(&str, &[u8])],
+    gzip: bool,
+) -> Result<(), Box<dyn Error>> {
     let file = fs::File::create(path)?;
     if gzip {
         let mut builder = tar::Builder::new(flate2::write::GzEncoder::new(
             file,
             flate2::Compression::default(),
         ));
-        append_raw_tar_entry(&mut builder, name, contents)?;
+        for (name, contents) in entries {
+            append_raw_tar_entry(&mut builder, name, contents)?;
+        }
         builder.into_inner()?.finish()?;
     } else {
         let mut builder = tar::Builder::new(file);
-        append_raw_tar_entry(&mut builder, name, contents)?;
+        for (name, contents) in entries {
+            append_raw_tar_entry(&mut builder, name, contents)?;
+        }
         builder.finish()?;
     }
     Ok(())
 }
 
 fn write_7z(path: &Path, name: &str, contents: &[u8]) -> Result<(), Box<dyn Error>> {
+    write_7z_entries(path, &[(name, contents)])
+}
+
+fn write_7z_entries(path: &Path, entries: &[(&str, &[u8])]) -> Result<(), Box<dyn Error>> {
     let mut writer = sevenz_rust2::ArchiveWriter::create(path)?;
-    writer.push_archive_entry(
-        sevenz_rust2::ArchiveEntry::new_file(name),
-        Some(Cursor::new(contents)),
-    )?;
+    for (name, contents) in entries {
+        writer.push_archive_entry(
+            sevenz_rust2::ArchiveEntry::new_file(name),
+            Some(Cursor::new(*contents)),
+        )?;
+    }
     writer.finish()?;
     Ok(())
 }
 
 fn never_cancelled() -> Arc<AtomicBool> {
     Arc::new(AtomicBool::new(false))
+}
+
+fn always_cancelled() -> Arc<AtomicBool> {
+    Arc::new(AtomicBool::new(true))
 }
 
 fn completed_extract<T>(outcome: ArchiveOutcome<T>) -> Result<T, String> {
@@ -1508,13 +1570,16 @@ fn completed_extract<T>(outcome: ArchiveOutcome<T>) -> Result<T, String> {
 fn extract_zip(path: &Path, destination: &Path) -> Result<Option<String>, String> {
     let file = fs::File::open(path).map_err(|error| error.to_string())?;
     let mut archive = zip::ZipArchive::new(file).map_err(|error| error.to_string())?;
-    completed_extract(extract_zip_from_archive(
-        &mut archive,
-        destination,
-        None,
-        &Arc::new(AtomicUsize::new(0)),
-        &never_cancelled(),
-    )?)
+    completed_extract(
+        extract_zip_from_archive(
+            &mut archive,
+            destination,
+            None,
+            &Arc::new(AtomicUsize::new(0)),
+            &never_cancelled(),
+        )
+        .map_err(|error| error.to_string())?,
+    )
 }
 
 #[test]
@@ -2280,7 +2345,7 @@ fn copy_with_big_buf_stops_when_cancelled() {
     let mut destination = Vec::new();
     let error = copy_with_big_buf(&b"payload"[..], &mut destination, &cancelled)
         .expect_err("cancelled copy must stop");
-    assert!(is_archive_cancelled(&error));
+    assert!(matches!(error, ArchiveError::Cancelled));
     assert!(destination.is_empty());
 }
 
@@ -2314,6 +2379,89 @@ fn zip_extraction_stops_and_drops_incomplete_output_when_cancelled() -> Result<(
             assert!(completed.is_empty());
             assert!(failed.is_empty());
             assert_eq!(not_attempted.len(), 2);
+        }
+        ArchiveOutcome::Completed(_) => panic!("extraction continued after cancellation"),
+    }
+    assert!(destination.read_dir()?.next().is_none());
+    Ok(())
+}
+
+#[test]
+fn tar_extraction_reports_remaining_entries_when_cancelled() -> Result<(), Box<dyn Error>> {
+    let root = tempfile::tempdir()?;
+    let destination = root.path().join("destination");
+    fs::create_dir(&destination)?;
+    let archive_path = root.path().join("content.tar");
+    write_tar_entries(
+        &archive_path,
+        &[("first.bin", b"early"), ("second.txt", b"late")],
+        false,
+    )?;
+
+    let outcome = extract_tar(
+        &archive_path,
+        &destination,
+        false,
+        &Arc::new(AtomicUsize::new(0)),
+        &always_cancelled(),
+    )?;
+
+    match outcome {
+        ArchiveOutcome::Cancelled {
+            completed,
+            failed,
+            not_attempted,
+        } => {
+            assert!(completed.is_empty());
+            assert!(failed.is_empty());
+            assert_eq!(
+                not_attempted,
+                [
+                    Location::local(destination.join("first.bin")),
+                    Location::local(destination.join("second.txt")),
+                ]
+            );
+        }
+        ArchiveOutcome::Completed(_) => panic!("extraction continued after cancellation"),
+    }
+    assert!(destination.read_dir()?.next().is_none());
+    Ok(())
+}
+
+#[test]
+fn sevenz_extraction_reports_remaining_entries_when_cancelled() -> Result<(), Box<dyn Error>> {
+    let root = tempfile::tempdir()?;
+    let destination = root.path().join("destination");
+    fs::create_dir(&destination)?;
+    let archive_path = root.path().join("content.7z");
+    write_7z_entries(
+        &archive_path,
+        &[("first.bin", b"early"), ("second.txt", b"late")],
+    )?;
+
+    let outcome = extract_7z_from_reader(
+        fs::File::open(&archive_path)?,
+        &destination,
+        sevenz_rust2::Password::empty(),
+        &Arc::new(AtomicUsize::new(0)),
+        &always_cancelled(),
+    )?;
+
+    match outcome {
+        ArchiveOutcome::Cancelled {
+            completed,
+            failed,
+            not_attempted,
+        } => {
+            assert!(completed.is_empty());
+            assert!(failed.is_empty());
+            assert_eq!(
+                not_attempted,
+                [
+                    Location::local(destination.join("first.bin")),
+                    Location::local(destination.join("second.txt")),
+                ]
+            );
         }
         ArchiveOutcome::Completed(_) => panic!("extraction continued after cancellation"),
     }
