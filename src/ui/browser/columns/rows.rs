@@ -79,6 +79,7 @@ pub(super) fn column_rows(
             .build();
         let rename = gtk::Entry::new();
         rename.add_css_class("inline-rename");
+        crate::ui::accessibility::set_label(&rename, "Rename");
         rename.set_hexpand(true);
         rename.set_visible(false);
         rename.connect_changed(|field| {
@@ -380,7 +381,7 @@ pub(super) fn column_rows(
             }
         });
         let weak_state_for_release = weak_state.clone();
-        selection_click.connect_released(move |gesture, _, _, _| {
+        selection_click.connect_released(move |_, _, _, _| {
             let Some(pending) = pending_activation_for_release.take() else {
                 return;
             };
@@ -394,7 +395,7 @@ pub(super) fn column_rows(
             {
                 return;
             }
-            gesture.set_state(gtk::EventSequenceState::Claimed);
+            // GTK 4.14's DragSource needs the release to reset before the next press.
             state.browser.activate(depth, pending.position);
         });
         selection_click.connect_cancel(move |_, _| {
@@ -555,6 +556,7 @@ pub(super) fn column_rows(
         let size_text = column_size_text(entry.as_ref());
         size.set_label(&size_text);
         size.set_visible(!size_text.is_empty());
+        crate::ui::accessibility::describe_entry(item, &label.label(), entry.as_ref());
     });
     factory.connect_unbind(|_, item| crate::ui::thumbnail::cancel_list_item_thumbnails(item));
     ColumnRows {
