@@ -1224,7 +1224,7 @@ fn compression_staging_stays_private_while_encoding() -> Result<(), Box<dyn Erro
 }
 
 #[test]
-fn new_archive_staging_stays_private_until_publish() -> Result<(), Box<dyn Error>> {
+fn compression_new_archive_staging_stays_private_until_publish() -> Result<(), Box<dyn Error>> {
     let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
         .lock()
         .map_err(|error| error.to_string())?;
