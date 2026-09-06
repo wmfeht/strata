@@ -22,20 +22,20 @@ use gtk::{gio, glib, prelude::*};
 use crate::test_support::ASYNC_MAIN_CONTEXT_DEFAULT;
 
 use super::{
-    LocalOperationProvider, TransferProgressTracker, await_cancellable, copy_failure_after_cleanup,
-    copy_new_recursively, copy_new_remote_file_with, copy_recursively, deletion_error_message,
-    deletion_error_summary, duplicate_candidate_name, extract_7z_from_reader, extract_tar,
-    extract_zip_from_archive, home_trash_entries_at, io_error, is_trash_unsupported_failure,
-    move_local, move_local_with, operation_error_summary, parse_copy_suffix, replace_local,
-    replace_local_with, transfer_is_noop, validated_archive_path, validated_child,
-    write_staged_archive,
+    ArchiveOutcome, LocalOperationProvider, TransferProgressTracker, await_cancellable,
+    copy_failure_after_cleanup, copy_new_recursively, copy_new_remote_file_with, copy_recursively,
+    copy_with_big_buf, deletion_error_message, deletion_error_summary, duplicate_candidate_name,
+    extract_7z_from_reader, extract_tar, extract_zip_from_archive, home_trash_entries_at, io_error,
+    is_archive_cancelled, is_trash_unsupported_failure, move_local, move_local_with,
+    operation_error_summary, parse_copy_suffix, replace_local, replace_local_with,
+    transfer_is_noop, validated_archive_path, validated_child, write_staged_archive,
 };
 use crate::{
     model::{EntryKind, FileEntry, Location, MetadataValue},
     services::{
-        ArchiveFormat, CompressRequest, DeleteRequest, LoadHandle, MoveRecord, OperationEvent,
-        OperationProvider, OperationRequestId, PasteItem, PasteRequest, RestoreRequest,
-        RestoreSource, TransferConflict, UndoMoveItem, UndoMoveRequest,
+        ArchiveFormat, CompressRequest, DeleteRequest, ExtractRequest, LoadHandle, MoveRecord,
+        OperationEvent, OperationProvider, OperationRequestId, PasteItem, PasteRequest,
+        RestoreRequest, RestoreSource, TransferConflict, UndoMoveItem, UndoMoveRequest,
     },
 };
 
@@ -1228,13 +1228,26 @@ fn every_compression_format_commits_a_readable_archive() -> Result<(), Box<dyn E
                     &extracted,
                     sevenz_rust2::Password::empty(),
                     &Arc::new(AtomicUsize::new(0)),
+                    &never_cancelled(),
                 )?;
             }
             ArchiveFormat::TarGz => {
-                extract_tar(&archive, &extracted, true, &Arc::new(AtomicUsize::new(0)))?;
+                extract_tar(
+                    &archive,
+                    &extracted,
+                    true,
+                    &Arc::new(AtomicUsize::new(0)),
+                    &never_cancelled(),
+                )?;
             }
             ArchiveFormat::Tar => {
-                extract_tar(&archive, &extracted, false, &Arc::new(AtomicUsize::new(0)))?;
+                extract_tar(
+                    &archive,
+                    &extracted,
+                    false,
+                    &Arc::new(AtomicUsize::new(0)),
+                    &never_cancelled(),
+                )?;
             }
         }
         assert_eq!(fs::read(extracted.join("source.txt"))?, b"contents");
@@ -1358,15 +1371,27 @@ fn write_7z(path: &Path, name: &str, contents: &[u8]) -> Result<(), Box<dyn Erro
     Ok(())
 }
 
+fn never_cancelled() -> Arc<AtomicBool> {
+    Arc::new(AtomicBool::new(false))
+}
+
+fn completed_extract<T>(outcome: ArchiveOutcome<T>) -> Result<T, String> {
+    match outcome {
+        ArchiveOutcome::Completed(value) => Ok(value),
+        ArchiveOutcome::Cancelled { .. } => Err("unexpected cancellation".to_owned()),
+    }
+}
+
 fn extract_zip(path: &Path, destination: &Path) -> Result<Option<String>, String> {
     let file = fs::File::open(path).map_err(|error| error.to_string())?;
     let mut archive = zip::ZipArchive::new(file).map_err(|error| error.to_string())?;
-    extract_zip_from_archive(
+    completed_extract(extract_zip_from_archive(
         &mut archive,
         destination,
         None,
         &Arc::new(AtomicUsize::new(0)),
-    )
+        &never_cancelled(),
+    )?)
 }
 
 #[test]
@@ -1475,6 +1500,7 @@ fn every_archive_format_rejects_parent_traversal() -> Result<(), Box<dyn Error>>
             &destination,
             false,
             &Arc::new(AtomicUsize::new(0)),
+            &never_cancelled(),
         )
         .is_err()
     );
@@ -1484,6 +1510,7 @@ fn every_archive_format_rejects_parent_traversal() -> Result<(), Box<dyn Error>>
             &destination,
             true,
             &Arc::new(AtomicUsize::new(0)),
+            &never_cancelled(),
         )
         .is_err()
     );
@@ -1493,6 +1520,7 @@ fn every_archive_format_rejects_parent_traversal() -> Result<(), Box<dyn Error>>
             &destination,
             sevenz_rust2::Password::empty(),
             &Arc::new(AtomicUsize::new(0)),
+            &never_cancelled(),
         )
         .is_err()
     );
@@ -2120,6 +2148,142 @@ fn extraction_supports_nesting_and_regular_conflicts() -> Result<(), Box<dyn Err
     );
     assert_eq!(fs::read(destination.join("existing/old.txt"))?, b"old");
     assert_eq!(fs::read(destination.join("existing (2)/new.txt"))?, b"new");
+    Ok(())
+}
+
+#[test]
+fn copy_with_big_buf_stops_when_cancelled() {
+    let cancelled = AtomicBool::new(true);
+    let mut destination = Vec::new();
+    let error = copy_with_big_buf(&b"payload"[..], &mut destination, &cancelled)
+        .expect_err("cancelled copy must stop");
+    assert!(is_archive_cancelled(&error));
+    assert!(destination.is_empty());
+}
+
+#[test]
+fn zip_extraction_stops_and_drops_incomplete_output_when_cancelled() -> Result<(), Box<dyn Error>> {
+    let root = tempfile::tempdir()?;
+    let destination = root.path().join("destination");
+    fs::create_dir(&destination)?;
+    let archive_path = root.path().join("content.zip");
+    write_zip(
+        &archive_path,
+        &[("first.bin", b"early"), ("second.txt", b"late")],
+    )?;
+
+    let file = fs::File::open(&archive_path)?;
+    let mut archive = zip::ZipArchive::new(file)?;
+    let outcome = extract_zip_from_archive(
+        &mut archive,
+        &destination,
+        None,
+        &Arc::new(AtomicUsize::new(0)),
+        &Arc::new(AtomicBool::new(true)),
+    )?;
+
+    match outcome {
+        ArchiveOutcome::Cancelled {
+            completed,
+            failed,
+            not_attempted,
+        } => {
+            assert!(completed.is_empty());
+            assert!(failed.is_empty());
+            assert_eq!(not_attempted.len(), 2);
+        }
+        ArchiveOutcome::Completed(_) => panic!("extraction continued after cancellation"),
+    }
+    assert!(destination.read_dir()?.next().is_none());
+    Ok(())
+}
+
+#[test]
+fn cancelling_extraction_waits_for_the_worker_and_reports_incomplete_output()
+-> Result<(), Box<dyn Error>> {
+    let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let root = tempfile::tempdir()?;
+    let destination = root.path().join("destination");
+    fs::create_dir(&destination)?;
+    let archive_path = root.path().join("content.zip");
+    let first = vec![0x3c_u8; 2 * 1024 * 1024];
+    write_zip_stored(
+        &archive_path,
+        &[("first.bin", first.as_slice()), ("second.txt", b"late")],
+    )?;
+
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let emitted = events.clone();
+    let handle = LocalOperationProvider.extract(
+        ExtractRequest {
+            id: OperationRequestId(11),
+            entry: test_file_entry(&archive_path),
+            destination: Location::local(&destination),
+            password: None,
+        },
+        Rc::new(move |event| emitted.borrow_mut().push(event)),
+    );
+    while !events
+        .borrow()
+        .iter()
+        .any(|event| matches!(event, OperationEvent::ArchiveStarted { .. }))
+    {
+        glib::MainContext::default().iteration(true);
+    }
+    drop(handle);
+    while !events.borrow().iter().any(|event| {
+        matches!(
+            event,
+            OperationEvent::Cancelled { .. }
+                | OperationEvent::Extracted { .. }
+                | OperationEvent::Failed { .. }
+        )
+    }) {
+        glib::MainContext::default().iteration(true);
+    }
+
+    assert!(
+        events
+            .borrow()
+            .iter()
+            .any(|event| matches!(event, OperationEvent::Cancelled { .. })),
+        "expected cancellation after the worker stopped: {:?}",
+        events.borrow()
+    );
+    assert!(
+        !events
+            .borrow()
+            .iter()
+            .any(|event| matches!(event, OperationEvent::Extracted { .. }))
+    );
+    let result = events
+        .borrow()
+        .iter()
+        .find_map(|event| match event {
+            OperationEvent::Cancelled { result, .. } => Some(result.clone()),
+            _ => None,
+        })
+        .expect("terminal cancellation result");
+    assert!(
+        result
+            .affected_locations
+            .contains(&Location::local(&destination))
+    );
+    assert!(!destination.join("second.txt").exists());
+    Ok(())
+}
+
+fn write_zip_stored(path: &Path, entries: &[(&str, &[u8])]) -> Result<(), Box<dyn Error>> {
+    let mut writer = zip::ZipWriter::new(fs::File::create(path)?);
+    let options =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    for (name, contents) in entries {
+        writer.start_file(*name, options)?;
+        writer.write_all(contents)?;
+    }
+    writer.finish()?;
     Ok(())
 }
 
