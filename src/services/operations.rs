@@ -44,6 +44,39 @@ pub struct CreateDirectoryRequest {
 pub enum TransferConflict {
     FailIfExists,
     ReplaceExisting,
+    /// Allocate `name (N).ext` beside the existing item instead of overwriting it.
+    KeepBoth,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConflictChoice {
+    KeepBoth,
+    Replace,
+    Skip,
+}
+
+/// Applies one collision decision, optionally to every remaining item.
+pub fn resolve_conflict_choice<I: Clone>(
+    choice: ConflictChoice,
+    apply_to_all: bool,
+    current: I,
+    remaining: &mut Vec<I>,
+) -> Vec<(I, TransferConflict)> {
+    let conflict = match choice {
+        ConflictChoice::KeepBoth => TransferConflict::KeepBoth,
+        ConflictChoice::Replace => TransferConflict::ReplaceExisting,
+        ConflictChoice::Skip => {
+            if apply_to_all {
+                remaining.clear();
+            }
+            return Vec::new();
+        }
+    };
+    let mut resolved = vec![(current, conflict)];
+    if apply_to_all {
+        resolved.extend(remaining.drain(..).map(|item| (item, conflict)));
+    }
+    resolved
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

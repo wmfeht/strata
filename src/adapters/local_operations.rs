@@ -277,6 +277,30 @@ fn duplicate_candidate_name(
     OsString::from_vec(candidate)
 }
 
+async fn unique_child_target(
+    source: &gio::File,
+    destination: &gio::File,
+    name: impl AsRef<Path>,
+    cancellable: &gio::Cancellable,
+) -> Result<gio::File, glib::Error> {
+    let info = await_cancellable(source, cancellable, |source, cancellable, result| {
+        source.query_info_async(
+            "standard::type",
+            gio::FileQueryInfoFlags::NOFOLLOW_SYMLINKS,
+            glib::Priority::DEFAULT,
+            Some(cancellable),
+            move |output| result.resolve(output),
+        );
+    })
+    .await?;
+    duplicate_target(
+        destination,
+        name.as_ref(),
+        info.file_type() == gio::FileType::Directory,
+        cancellable,
+    )
+}
+
 fn duplicate_target(
     destination: &gio::File,
     name: &Path,
@@ -1796,9 +1820,10 @@ where
             .set_permissions(permissions)
             .map_err(|error| error.to_string())?;
     }
-    match conflict {
-        TransferConflict::FailIfExists => staged.persist_noclobber(archive_path),
-        TransferConflict::ReplaceExisting => staged.persist(archive_path),
+    if conflict == TransferConflict::ReplaceExisting {
+        staged.persist(archive_path)
+    } else {
+        staged.persist_noclobber(archive_path)
     }
     .map(|_| ())
     .map_err(|error| error.to_string())
@@ -2285,56 +2310,16 @@ impl OperationProvider for LocalOperationProvider {
                 };
                 let default_target = destination.child(&name);
                 let is_duplicate = !request.move_sources && source.equal(&default_target);
-                if !is_duplicate && transfer_is_noop(&source, &destination, &default_target) {
+                let keep_both = item.conflict == TransferConflict::KeepBoth || is_duplicate;
+                if !keep_both && transfer_is_noop(&source, &destination, &default_target) {
                     completed.push(item.source.clone());
                     progress.finish_item(item_started_at, item_sizes[index]);
                     continue;
                 }
-                let target = if is_duplicate {
-                    let is_directory = match await_cancellable(
-                        &source,
-                        &operation_cancellable,
-                        |source, cancellable, result| {
-                            source.query_info_async(
-                                "standard::type",
-                                gio::FileQueryInfoFlags::NOFOLLOW_SYMLINKS,
-                                glib::Priority::DEFAULT,
-                                Some(cancellable),
-                                move |output| result.resolve(output),
-                            );
-                        },
-                    )
-                    .await
+                let target = if keep_both {
+                    match unique_child_target(&source, &destination, &name, &operation_cancellable)
+                        .await
                     {
-                        Ok(info) => info.file_type() == gio::FileType::Directory,
-                        Err(error) => {
-                            if was_cancelled(&error) {
-                                emit(cancelled_event(
-                                    request.id,
-                                    completed,
-                                    vec![item.source.clone()],
-                                    request.items[index + 1..]
-                                        .iter()
-                                        .map(|item| item.source.clone())
-                                        .collect(),
-                                    affected_locations,
-                                ));
-                                return;
-                            }
-                            emit(OperationEvent::TransferFailed {
-                                request_id: request.id,
-                                completed_locations: completed,
-                                message: error.to_string(),
-                            });
-                            return;
-                        }
-                    };
-                    match duplicate_target(
-                        &destination,
-                        &name,
-                        is_directory,
-                        &operation_cancellable,
-                    ) {
                         Ok(target) => target,
                         Err(error) => {
                             if was_cancelled(&error) {
@@ -2365,15 +2350,7 @@ impl OperationProvider for LocalOperationProvider {
                 if let Some(target) = location_for_file(&target) {
                     affected_locations.insert(target);
                 }
-                let result = if is_duplicate {
-                    copy_new_recursively_with_progress(
-                        source,
-                        target,
-                        operation_cancellable.clone(),
-                        Some(progress.clone()),
-                    )
-                    .await
-                } else if item.conflict == TransferConflict::ReplaceExisting {
+                let result = if item.conflict == TransferConflict::ReplaceExisting {
                     replace_local_with_progress(
                         source,
                         target,
@@ -2498,7 +2475,55 @@ impl OperationProvider for LocalOperationProvider {
                 }
                 let source = sources[index].clone();
                 let item_started_at = progress.transferred_bytes.get();
-                let target = gio_file(&item.record.original);
+                let original = gio_file(&item.record.original);
+                let target = if item.conflict == TransferConflict::KeepBoth {
+                    let Some(parent) = original.parent() else {
+                        emit(OperationEvent::TransferFailed {
+                            request_id: request.id,
+                            completed_locations: completed,
+                            message: "The original location has no parent directory".to_owned(),
+                        });
+                        return;
+                    };
+                    let Some(name) = original.basename() else {
+                        emit(OperationEvent::TransferFailed {
+                            request_id: request.id,
+                            completed_locations: completed,
+                            message: "The original location has no file name".to_owned(),
+                        });
+                        return;
+                    };
+                    match unique_child_target(&source, &parent, &name, &operation_cancellable).await
+                    {
+                        Ok(target) => target,
+                        Err(error) => {
+                            if was_cancelled(&error) {
+                                emit(cancelled_event(
+                                    request.id,
+                                    completed,
+                                    vec![item.record.current.clone()],
+                                    request.items[index + 1..]
+                                        .iter()
+                                        .map(|item| item.record.current.clone())
+                                        .collect(),
+                                    affected_locations,
+                                ));
+                                return;
+                            }
+                            emit(OperationEvent::TransferFailed {
+                                request_id: request.id,
+                                completed_locations: completed,
+                                message: error.to_string(),
+                            });
+                            return;
+                        }
+                    }
+                } else {
+                    original
+                };
+                if let Some(target) = location_for_file(&target) {
+                    affected_locations.insert(target);
+                }
                 let result = if item.conflict == TransferConflict::ReplaceExisting {
                     replace_local_with_progress(
                         source,

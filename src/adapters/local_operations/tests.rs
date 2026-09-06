@@ -2535,6 +2535,17 @@ fn drive_until_transfer_settles(events: &Rc<RefCell<Vec<OperationEvent>>>) {
     }
 }
 
+fn run_paste(request: PasteRequest) -> Vec<OperationEvent> {
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let emitted = events.clone();
+    let _operation = LocalOperationProvider.paste(
+        request,
+        Rc::new(move |event| emitted.borrow_mut().push(event)),
+    );
+    drive_until_transfer_settles(&events);
+    events.borrow().clone()
+}
+
 #[test]
 fn undoing_a_move_returns_each_item_to_its_original_directory() -> Result<(), Box<dyn Error>> {
     let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
@@ -2672,5 +2683,255 @@ fn a_confirmed_undo_conflict_replaces_the_newer_item() -> Result<(), Box<dyn Err
     ));
     assert!(!moved.exists());
     assert_eq!(fs::read(&original)?, b"moved");
+    Ok(())
+}
+
+#[test]
+fn copying_into_another_folder_keeps_both_with_a_numbered_name() -> Result<(), Box<dyn Error>> {
+    let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let root = tempfile::tempdir()?;
+    let source_dir = root.path().join("source");
+    let destination = root.path().join("dest");
+    fs::create_dir_all(&source_dir)?;
+    fs::create_dir_all(&destination)?;
+    let source = source_dir.join("report.txt");
+    fs::write(&source, b"copied")?;
+    fs::write(destination.join("report.txt"), b"existing")?;
+
+    let events = run_paste(PasteRequest {
+        id: OperationRequestId(50),
+        destination: Location::local(&destination),
+        items: vec![PasteItem {
+            source: Location::local(&source),
+            conflict: TransferConflict::KeepBoth,
+        }],
+        move_sources: false,
+    });
+
+    assert!(matches!(events.last(), Some(OperationEvent::Pasted { .. })));
+    assert_eq!(fs::read(destination.join("report.txt"))?, b"existing");
+    assert_eq!(fs::read(destination.join("report (1).txt"))?, b"copied");
+    assert_eq!(fs::read(&source)?, b"copied");
+    Ok(())
+}
+
+#[test]
+fn replacing_a_cross_folder_copy_overwrites_the_destination() -> Result<(), Box<dyn Error>> {
+    let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let root = tempfile::tempdir()?;
+    let source_dir = root.path().join("source");
+    let destination = root.path().join("dest");
+    fs::create_dir_all(&source_dir)?;
+    fs::create_dir_all(&destination)?;
+    let source = source_dir.join("report.txt");
+    fs::write(&source, b"copied")?;
+    fs::write(destination.join("report.txt"), b"existing")?;
+
+    let events = run_paste(PasteRequest {
+        id: OperationRequestId(51),
+        destination: Location::local(&destination),
+        items: vec![PasteItem {
+            source: Location::local(&source),
+            conflict: TransferConflict::ReplaceExisting,
+        }],
+        move_sources: false,
+    });
+
+    assert!(matches!(events.last(), Some(OperationEvent::Pasted { .. })));
+    assert_eq!(fs::read(destination.join("report.txt"))?, b"copied");
+    assert!(!destination.join("report (1).txt").exists());
+    assert_eq!(fs::read(&source)?, b"copied");
+    Ok(())
+}
+
+#[test]
+fn skipping_a_cross_folder_copy_leaves_the_destination_untouched() -> Result<(), Box<dyn Error>> {
+    let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let root = tempfile::tempdir()?;
+    let source_dir = root.path().join("source");
+    let destination = root.path().join("dest");
+    fs::create_dir_all(&source_dir)?;
+    fs::create_dir_all(&destination)?;
+    let extra = source_dir.join("notes.txt");
+    fs::write(source_dir.join("report.txt"), b"copied")?;
+    fs::write(&extra, b"notes")?;
+    fs::write(destination.join("report.txt"), b"existing")?;
+
+    let events = run_paste(PasteRequest {
+        id: OperationRequestId(52),
+        destination: Location::local(&destination),
+        items: vec![PasteItem {
+            source: Location::local(&extra),
+            conflict: TransferConflict::FailIfExists,
+        }],
+        move_sources: false,
+    });
+
+    assert!(matches!(events.last(), Some(OperationEvent::Pasted { .. })));
+    assert_eq!(fs::read(destination.join("report.txt"))?, b"existing");
+    assert_eq!(fs::read(destination.join("notes.txt"))?, b"notes");
+    assert!(!destination.join("report (1).txt").exists());
+    Ok(())
+}
+
+#[test]
+fn a_mixed_paste_applies_keep_both_replace_and_new_names() -> Result<(), Box<dyn Error>> {
+    let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let root = tempfile::tempdir()?;
+    let source_dir = root.path().join("source");
+    let destination = root.path().join("dest");
+    fs::create_dir_all(&source_dir)?;
+    fs::create_dir_all(&destination)?;
+    fs::write(source_dir.join("keep.txt"), b"keep-source")?;
+    fs::write(source_dir.join("replace.txt"), b"replace-source")?;
+    fs::write(source_dir.join("fresh.txt"), b"fresh-source")?;
+    fs::write(destination.join("keep.txt"), b"keep-dest")?;
+    fs::write(destination.join("replace.txt"), b"replace-dest")?;
+
+    let events = run_paste(PasteRequest {
+        id: OperationRequestId(53),
+        destination: Location::local(&destination),
+        items: vec![
+            PasteItem {
+                source: Location::local(source_dir.join("keep.txt")),
+                conflict: TransferConflict::KeepBoth,
+            },
+            PasteItem {
+                source: Location::local(source_dir.join("replace.txt")),
+                conflict: TransferConflict::ReplaceExisting,
+            },
+            PasteItem {
+                source: Location::local(source_dir.join("fresh.txt")),
+                conflict: TransferConflict::FailIfExists,
+            },
+        ],
+        move_sources: false,
+    });
+
+    assert!(matches!(events.last(), Some(OperationEvent::Pasted { .. })));
+    assert_eq!(fs::read(destination.join("keep.txt"))?, b"keep-dest");
+    assert_eq!(fs::read(destination.join("keep (1).txt"))?, b"keep-source");
+    assert_eq!(
+        fs::read(destination.join("replace.txt"))?,
+        b"replace-source"
+    );
+    assert_eq!(fs::read(destination.join("fresh.txt"))?, b"fresh-source");
+    Ok(())
+}
+
+#[test]
+fn keeping_both_on_a_move_uses_a_unique_name_and_removes_the_source() -> Result<(), Box<dyn Error>>
+{
+    let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let root = tempfile::tempdir()?;
+    let source_dir = root.path().join("source");
+    let destination = root.path().join("dest");
+    fs::create_dir_all(&source_dir)?;
+    fs::create_dir_all(&destination)?;
+    let source = source_dir.join("report.txt");
+    fs::write(&source, b"moved")?;
+    fs::write(destination.join("report.txt"), b"existing")?;
+
+    let events = run_paste(PasteRequest {
+        id: OperationRequestId(54),
+        destination: Location::local(&destination),
+        items: vec![PasteItem {
+            source: Location::local(&source),
+            conflict: TransferConflict::KeepBoth,
+        }],
+        move_sources: true,
+    });
+
+    assert!(matches!(events.last(), Some(OperationEvent::Pasted { .. })));
+    assert!(!source.exists());
+    assert_eq!(fs::read(destination.join("report.txt"))?, b"existing");
+    assert_eq!(fs::read(destination.join("report (1).txt"))?, b"moved");
+    Ok(())
+}
+
+#[test]
+fn undoing_a_move_can_keep_both_under_a_unique_name() -> Result<(), Box<dyn Error>> {
+    let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let root = tempfile::tempdir()?;
+    let origin = root.path().join("origin");
+    let archive = root.path().join("archive");
+    fs::create_dir_all(&origin)?;
+    fs::create_dir_all(&archive)?;
+    let original = origin.join("report.txt");
+    let moved = archive.join("report.txt");
+    fs::write(&original, b"newer")?;
+    fs::write(&moved, b"moved")?;
+
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let emitted = events.clone();
+    let _operation = LocalOperationProvider.undo_move(
+        UndoMoveRequest {
+            id: OperationRequestId(55),
+            items: vec![UndoMoveItem {
+                record: MoveRecord {
+                    original: Location::local(&original),
+                    current: Location::local(&moved),
+                },
+                conflict: TransferConflict::KeepBoth,
+            }],
+        },
+        Rc::new(move |event| emitted.borrow_mut().push(event)),
+    );
+
+    drive_until_transfer_settles(&events);
+
+    assert!(matches!(
+        events.borrow().last(),
+        Some(OperationEvent::Pasted { .. })
+    ));
+    assert!(!moved.exists());
+    assert_eq!(fs::read(&original)?, b"newer");
+    assert_eq!(fs::read(origin.join("report (1).txt"))?, b"moved");
+    Ok(())
+}
+
+#[test]
+fn copying_without_keep_both_still_fails_when_the_destination_exists() -> Result<(), Box<dyn Error>>
+{
+    let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let root = tempfile::tempdir()?;
+    let source_dir = root.path().join("source");
+    let destination = root.path().join("dest");
+    fs::create_dir_all(&source_dir)?;
+    fs::create_dir_all(&destination)?;
+    let source = source_dir.join("report.txt");
+    fs::write(&source, b"copied")?;
+    fs::write(destination.join("report.txt"), b"existing")?;
+
+    let events = run_paste(PasteRequest {
+        id: OperationRequestId(56),
+        destination: Location::local(&destination),
+        items: vec![PasteItem {
+            source: Location::local(&source),
+            conflict: TransferConflict::FailIfExists,
+        }],
+        move_sources: false,
+    });
+
+    assert!(matches!(
+        events.last(),
+        Some(OperationEvent::TransferFailed { .. })
+    ));
+    assert_eq!(fs::read(destination.join("report.txt"))?, b"existing");
+    assert!(!destination.join("report (1).txt").exists());
     Ok(())
 }
