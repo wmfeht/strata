@@ -4758,7 +4758,7 @@ impl ViewState {
                     *total,
                     crate::assets::icons::FILE_ARCHIVE,
                     "Working",
-                    "This may take a moment",
+                    "Cancelling will not undo completed changes",
                     Rc::new(move || browser.cancel_file_operation()),
                 );
             }
