@@ -2050,6 +2050,18 @@ entry.preview-command-entry selection {
   padding: 4px 8px 4px 12px;
 }
 
+.column-header-actions,
+.column-header-actions-overflow {
+  transition: none;
+}
+
+.column-header-actions-overflow {
+  color: @theme_dim_text;
+  font-weight: 700;
+  min-width: 24px;
+  padding: 0 6px;
+}
+
 button.column-header-action,
 menubutton.column-header-action > button {
   background: transparent;

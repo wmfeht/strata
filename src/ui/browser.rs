@@ -8,7 +8,7 @@ use crate::model::{FileEntry, Location};
 use crate::services::{FileSource, LoadHandle, OperationProvider};
 use crate::ui::browser::clipboard::{copy_locations, register_cut_view};
 use crate::ui::browser::collection::cancel_source;
-use crate::ui::browser::columns::{COLUMN_WIDTH, ColumnView};
+use crate::ui::browser::columns::{COLUMN_WIDTH, ColumnView, miller_header_actions_expanded};
 use crate::ui::browser::desktop::selected_terminal_location;
 use crate::ui::browser::inline_edit::{ActiveNewEntry, ActiveRename};
 use crate::ui::browser::location::{MountCredentials, is_breadcrumb_button_target};
@@ -1358,6 +1358,14 @@ impl ViewState {
             } else {
                 "Keyboard · Paste here"
             });
+            let expanded = miller_header_actions_expanded(
+                depth,
+                self.hovered_column.get(),
+                self.browser.active_depth(),
+                focused_column,
+            );
+            column.header_actions.set_visible(expanded);
+            column.header_actions_overflow.set_visible(!expanded);
         }
     }
 

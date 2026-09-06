@@ -68,6 +68,7 @@ pub(super) struct ColumnView {
     pub(super) map: ViewMap,
     pub(super) model_generation: Rc<Cell<u64>>,
     pub(super) header_actions: gtk::Box,
+    pub(super) header_actions_overflow: gtk::Label,
     pub(super) filter_entry: gtk::Entry,
     pub(super) filter_button: gtk::ToggleButton,
     pub(super) selection: gtk::MultiSelection,
@@ -221,6 +222,15 @@ pub(super) fn is_column_background(surface: &gtk::Widget, picked: &gtk::Widget) 
 
 fn should_preserve_drag_selection(clicked_selected: bool, selected_count: u64) -> bool {
     clicked_selected && selected_count > 1
+}
+
+pub(super) fn miller_header_actions_expanded(
+    depth: usize,
+    hovered: Option<usize>,
+    active: Option<usize>,
+    focused: Option<usize>,
+) -> bool {
+    hovered == Some(depth) || active == Some(depth) || focused == Some(depth)
 }
 
 pub(super) fn update_empty_trash_sensitivity(column: &ColumnView, count: usize) {
@@ -569,6 +579,20 @@ impl ViewState {
             });
             header_actions.append(&close);
         }
+        let header_actions_overflow = gtk::Label::new(Some("…"));
+        header_actions_overflow.add_css_class("column-header-actions-overflow");
+        header_actions_overflow.set_tooltip_text(Some("Column actions"));
+        header_actions_overflow
+            .update_property(&[gtk::accessible::Property::Label("Column actions")]);
+        let expanded = miller_header_actions_expanded(
+            depth,
+            self.hovered_column.get(),
+            self.browser.active_depth(),
+            self.focused_column_depth(),
+        );
+        header_actions.set_visible(expanded);
+        header_actions_overflow.set_visible(!expanded);
+        header.append(&header_actions_overflow);
         header.append(&header_actions);
         column.append(&header);
         column.append(&filter_revealer);
@@ -1116,6 +1140,7 @@ impl ViewState {
             map,
             model_generation: self.source_generation.clone(),
             header_actions,
+            header_actions_overflow,
             filter_entry,
             filter_button,
             selection,

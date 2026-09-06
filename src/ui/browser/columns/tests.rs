@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+mod header_chrome;
 mod spinner;
 
 use super::*;
