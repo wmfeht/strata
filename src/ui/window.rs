@@ -23,7 +23,8 @@ use crate::{
 use super::{
     blur::BlurBin,
     browser::{
-        BrowserView, PeekBehavior, PinStatus, file_drop_action, locations_from_file_list_value,
+        BrowserView, PeekBehavior, PinStatus, PreparedFileDrop, file_drop_action,
+        file_drop_commits_move, locations_from_file_list_value, prepare_file_drop_target,
         show_error_dialog,
     },
     browser_modes::{BrowserDensity, BrowserMode},
@@ -2212,13 +2213,18 @@ fn install_sidebar_file_drop(
         return;
     }
     row.add_css_class("file-drop-zone");
-    let drop = gtk::DropTarget::new(
-        gtk::gdk::FileList::static_type(),
-        gtk::gdk::DragAction::COPY | gtk::gdk::DragAction::MOVE,
-    );
+    let PreparedFileDrop {
+        target: drop,
+        state: drop_state,
+    } = prepare_file_drop_target({
+        let destination = destination.clone();
+        move || Some(destination.clone())
+    });
     drop.set_propagation_phase(gtk::PropagationPhase::Capture);
-    drop.connect_enter(|target, _, _| file_drop_action(target));
-    drop.connect_motion(|target, _, _| file_drop_action(target));
+    let state_for_enter = drop_state.clone();
+    drop.connect_enter(move |target, _, _| file_drop_action(target, &state_for_enter));
+    let state_for_motion = drop_state.clone();
+    drop.connect_motion(move |target, _, _| file_drop_action(target, &state_for_motion));
     let view = view.clone();
     drop.connect_drop(move |target, value, _, _| {
         let Some(sources) = locations_from_file_list_value(value) else {
@@ -2227,7 +2233,7 @@ fn install_sidebar_file_drop(
         if sources.is_empty() {
             return false;
         }
-        let move_sources = file_drop_action(target) == gtk::gdk::DragAction::MOVE;
+        let move_sources = file_drop_commits_move(target, &destination, &sources, &drop_state);
         view.start_transfer(destination.clone(), sources, move_sources);
         true
     });

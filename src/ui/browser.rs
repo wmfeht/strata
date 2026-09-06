@@ -46,7 +46,10 @@ mod transfer;
 mod trash;
 
 pub(super) use crate::ui::browser::clipboard::file_drag_content;
-pub(crate) use crate::ui::browser::clipboard::{file_drop_action, locations_from_file_list_value};
+pub(crate) use crate::ui::browser::clipboard::{
+    PreparedFileDrop, file_drop_action, file_drop_commits_move, locations_from_file_list_value,
+    prepare_file_drop_target,
+};
 pub(crate) use crate::ui::browser::collection::{
     activate_recursive_search_result, debounce_filter_entry, detach_collection_view,
     focus_collection_item_when_allocated, focus_filter_entry, notify_filter_query,
