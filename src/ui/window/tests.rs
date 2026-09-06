@@ -910,3 +910,16 @@ fn the_bundled_stylesheet_only_uses_at_rules_gtk_parses() {
         "the stylesheet uses at-rules GTK 4.12 cannot parse: {unsupported:?}"
     );
 }
+
+#[test]
+fn chrome_stylesheet_requests_header_bar_icon_size() {
+    let css = include_str!("../../style.css");
+    assert!(
+        css.contains("headerbar image {\n  -gtk-icon-size: 16px;"),
+        "header-bar icons must use GTK's compact 16px size, not large/app sizes"
+    );
+    assert!(
+        !css.contains("-gtk-icon-size: 20px;"),
+        "20px chrome icon size regresses XFCE toolbar density"
+    );
+}

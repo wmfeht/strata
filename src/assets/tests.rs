@@ -3,8 +3,8 @@
 use gtk::prelude::TextureExt;
 
 use super::{
-    contrasting_foreground, folder_decoration_texture, icons, primary_icon_texture,
-    recolor_icon_source, svg_body,
+    CHROME_ICON_PX, contrasting_foreground, folder_decoration_texture, icons, primary_icon_texture,
+    primary_icon_texture_at, recolor_icon_source, svg_body, texture_px_for_pixel_size,
 };
 
 #[test]
@@ -80,4 +80,29 @@ fn primary_icons_rasterize_at_high_resolution() {
     let texture = primary_icon_texture(icons::DOCUMENTS, "#8bc9eb").expect("icon renders");
     assert_eq!(texture.width(), 96);
     assert_eq!(texture.height(), 96);
+}
+
+#[test]
+fn chrome_icon_textures_are_twice_the_toolbar_size() {
+    assert_eq!(texture_px_for_pixel_size(CHROME_ICON_PX), 32);
+    assert_eq!(texture_px_for_pixel_size(48), 96);
+    assert_eq!(texture_px_for_pixel_size(-1), 96);
+    gio::resources_register_include!("strata.gresource").expect("resources register");
+    let texture = primary_icon_texture_at(icons::SEARCH, "#8bc9eb", 32).expect("icon renders");
+    assert_eq!(texture.width(), 32);
+    assert_eq!(texture.height(), 32);
+}
+
+#[test]
+fn chrome_icons_use_header_bar_pixel_size() {
+    crate::test_support::gtk_test(
+        "assets::tests::chrome_icons_use_header_bar_pixel_size",
+        || {
+            use gtk::prelude::*;
+            let icon = crate::assets::chrome_icon(icons::SEARCH);
+            assert_eq!(icon.pixel_size(), CHROME_ICON_PX);
+            assert_eq!(icon.halign(), gtk::Align::Center);
+            assert_eq!(icon.valign(), gtk::Align::Center);
+        },
+    );
 }
