@@ -16,7 +16,7 @@ use super::{
     parse_pinned_places, pin_status, remove_pinned_place, reorder_pinned_places, reorder_places,
     resolve_place_order, serialize_pinned_places, should_show_standard_place,
     sidebar_accepts_file_drop, sidebar_update_label, standard_place, type_to_search_query,
-    vim_focus_direction, volume_release_action,
+    type_to_search_seed, vim_focus_direction, volume_release_action,
 };
 
 fn release(version: &str, kind: BuildKind) -> ReleaseMetadata {
@@ -289,6 +289,17 @@ fn type_to_search_ignores_shortcuts_and_non_printable_keys() {
         type_to_search_query(gtk::gdk::Key::F5, gtk::gdk::ModifierType::empty()),
         None
     );
+}
+
+#[test]
+fn type_to_search_slash_activates_filter_without_seeding() {
+    assert_eq!(
+        type_to_search_query(gtk::gdk::Key::slash, gtk::gdk::ModifierType::empty()),
+        Some('/')
+    );
+    assert_eq!(type_to_search_seed('/'), None);
+    assert_eq!(type_to_search_seed('n'), Some('n'));
+    assert_eq!(type_to_search_seed('?'), Some('?'));
 }
 
 #[test]

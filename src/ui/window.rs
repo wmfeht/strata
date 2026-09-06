@@ -53,7 +53,13 @@ struct TypeToSearch {
 
 impl TypeToSearch {
     fn show(&self, query: char) -> bool {
-        self.preferences.type_to_search() && self.view.show_filter_with_query(&query.to_string())
+        if !self.preferences.type_to_search() {
+            return false;
+        }
+        match type_to_search_seed(query) {
+            Some(seed) => self.view.show_filter_with_query(&seed.to_string()),
+            None => self.view.show_filter(),
+        }
     }
 }
 
@@ -1183,6 +1189,11 @@ fn type_to_search_query(key: gtk::gdk::Key, modifiers: gtk::gdk::ModifierType) -
         return None;
     }
     key.to_unicode().filter(|character| !character.is_control())
+}
+
+fn type_to_search_seed(query: char) -> Option<char> {
+    // `/` activates the pane filter; it is not a query character.
+    (query != '/').then_some(query)
 }
 
 fn is_open_terminal_shortcut(key: gtk::gdk::Key, modifiers: gtk::gdk::ModifierType) -> bool {
