@@ -706,12 +706,10 @@ fn general_page(
     strategy_row.add_css_class("settings-option");
     let strategy_copy = gtk::Box::new(gtk::Orientation::Vertical, 2);
     strategy_copy.set_hexpand(true);
-    let strategy_title = gtk::Label::new(Some("Cross-volume drops"));
+    let strategy_title = gtk::Label::new(Some("Cross-device Drag and Drop"));
     strategy_title.set_xalign(0.0);
     strategy_title.add_css_class("settings-option-title");
-    let strategy_desc = gtk::Label::new(Some(
-        "What a plain drop does when the destination is on another disk or network location. Ctrl still copies and Shift still moves.",
-    ));
+    let strategy_desc = gtk::Label::new(Some("Behavior for drag and drop to a different device."));
     strategy_desc.set_xalign(0.0);
     strategy_desc.set_wrap(true);
     strategy_desc.add_css_class("settings-option-description");

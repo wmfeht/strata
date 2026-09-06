@@ -106,7 +106,7 @@ impl ViewState {
             ModalTone::Accent,
         );
         layout.body.append(&message_dialog_description(
-            "The destination is on a different volume. Copying leaves the originals in place. Moving removes them from the source after a successful copy.",
+            "The destination is on a different device.",
         ));
         let move_button = gtk::Button::with_label("Move");
         move_button.add_css_class("action-dialog-cancel");
