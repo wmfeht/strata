@@ -32,8 +32,8 @@ pub(crate) use preview::{
     is_non_executable_extensionless_dotfile,
 };
 pub(crate) use transfer_action::{
-    DropActionInput, DropOverride, TransferKind, VolumeIdentity, VolumeRelation, drop_is_noop,
-    preferred_transfer_kind, volume_relation,
+    CrossVolumeDropStrategy, DropActionInput, DropCommit, DropOverride, TransferKind,
+    VolumeIdentity, VolumeRelation, drop_commit, drop_is_noop, volume_relation,
 };
 // `best_update`, `rollback_target`, and `ReleaseSummary` are deliberately not
 // re-exported here: `rollback_target` is the never-downgrade bypass, and only

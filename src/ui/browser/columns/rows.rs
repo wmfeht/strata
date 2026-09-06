@@ -9,7 +9,7 @@ use crate::ui::{
     browser::{
         ViewState,
         clipboard::{
-            PreparedFileDrop, file_drag_content, file_drop_action, file_drop_commits_move,
+            PreparedFileDrop, file_drag_content, file_drop_action, file_drop_commit,
             locations_equal, locations_from_file_list_value, prepare_file_drop_target,
             shared_cut_locations,
         },
@@ -30,7 +30,6 @@ use gtk::{glib, prelude::*};
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
-    time::Duration,
 };
 
 pub(super) struct ColumnRows {
@@ -273,12 +272,9 @@ pub(super) fn column_rows(
                 let Some(sources) = locations_from_file_list_value(value) else {
                     return false;
                 };
-                let move_sources =
-                    file_drop_commits_move(target, &destination, &sources, &drop_state);
+                let commit = file_drop_commit(target, &destination, &sources, &drop_state);
                 slide_in_down(&dropped_row);
-                glib::timeout_add_local_once(Duration::from_millis(300), move || {
-                    state.start_transfer(destination, sources, move_sources);
-                });
+                state.commit_file_drop(destination, sources, commit);
                 true
             });
             row.add_controller(drop);

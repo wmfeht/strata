@@ -5,8 +5,8 @@ use crate::adapters::{
 };
 use crate::model::{FileEntry, Location};
 use crate::services::{
-    DropActionInput, DropOverride, TransferKind, VolumeRelation, drop_is_noop,
-    preferred_transfer_kind,
+    CrossVolumeDropStrategy, DropActionInput, DropCommit, DropOverride, TransferKind,
+    VolumeRelation, drop_commit, drop_is_noop,
 };
 use crate::ui::browser::ViewState;
 use crate::ui::browser::columns::set_cut_path_style;
@@ -228,8 +228,8 @@ fn transfer_dropped_files(
     if sources.is_empty() {
         return false;
     }
-    let move_sources = file_drop_commits_move(target, &destination, &sources, drop_state);
-    state.start_transfer(destination, sources, move_sources);
+    let commit = file_drop_commit(target, &destination, &sources, drop_state);
+    state.commit_file_drop(destination, sources, commit);
     true
 }
 
@@ -239,18 +239,23 @@ pub(crate) fn file_drop_action(
 ) -> gtk::gdk::DragAction {
     let destination = state.destination();
     let sources = state.sources(target);
-    classify_file_drop(target, state, destination.as_ref(), sources, false)
+    drop_commit_action(classify_file_drop(
+        target,
+        state,
+        destination.as_ref(),
+        sources,
+        false,
+    ))
 }
 
-pub(crate) fn file_drop_commits_move(
+pub(crate) fn file_drop_commit(
     target: &gtk::DropTarget,
     destination: &Location,
     sources: &[Location],
     state: &Rc<FileDropState>,
-) -> bool {
+) -> DropCommit {
     let sources = state.sources_matching(target, sources);
     classify_file_drop(target, state, Some(destination), sources, true)
-        == gtk::gdk::DragAction::MOVE
 }
 
 fn drop_source_locations(target: &gtk::DropTarget) -> Vec<Location> {
@@ -267,10 +272,10 @@ fn classify_file_drop(
     destination: Option<&Location>,
     sources: Rc<[Location]>,
     commit: bool,
-) -> gtk::gdk::DragAction {
+) -> DropCommit {
     let drop = target.current_drop();
     if drop.is_none() && !commit {
-        return gtk::gdk::DragAction::empty();
+        return DropCommit::Forbidden;
     }
     let override_with = if commit {
         commit_override(target, &state.last_override)
@@ -278,13 +283,14 @@ fn classify_file_drop(
         hover_override(target, &state.last_override)
     };
     let Some(destination) = destination else {
-        return gtk::gdk::DragAction::empty();
+        return DropCommit::Forbidden;
     };
     let (relation, is_noop) = state.classify(target, destination, sources.clone());
     let source_actions = drop
         .as_ref()
         .map_or_else(|| target.actions(), |drop| drop.actions());
     let offered = offered_file_actions(target.actions(), source_actions);
+    let strategy = current_cross_volume_drop_strategy();
     if commit {
         tracing::debug!(
             dest = %destination.diagnostic_path(),
@@ -293,6 +299,7 @@ fn classify_file_drop(
             volume = ?relation,
             volumes = %state.describe_volumes(),
             ?override_with,
+            ?strategy,
             event_mods = ?target.current_event_state(),
             keyboard_mods = ?drop_modifier_state(target),
             drop_actions = ?drop.as_ref().map(|drop| drop.actions()),
@@ -300,7 +307,11 @@ fn classify_file_drop(
             "drop action classified"
         );
     }
-    preferred_file_drop_action(offered, override_with, relation, is_noop)
+    preferred_file_drop_commit(offered, override_with, relation, is_noop, strategy)
+}
+
+fn current_cross_volume_drop_strategy() -> CrossVolumeDropStrategy {
+    crate::ui::theme::ThemeManager::shared().cross_volume_drop_strategy()
 }
 
 /// File transfers are performed by Strata, not by the drag protocol. A local
@@ -362,21 +373,27 @@ fn drop_modifier_state(target: &gtk::DropTarget) -> gtk::gdk::ModifierType {
         .unwrap_or_else(|| target.current_event_state())
 }
 
-fn preferred_file_drop_action(
+fn preferred_file_drop_commit(
     actions: gtk::gdk::DragAction,
     override_with: DropOverride,
     volume: VolumeRelation,
     is_noop: bool,
-) -> gtk::gdk::DragAction {
+    strategy: CrossVolumeDropStrategy,
+) -> DropCommit {
     if is_noop {
-        return gtk::gdk::DragAction::empty();
+        return DropCommit::Forbidden;
     }
-    match preferred_transfer_kind(DropActionInput {
+    drop_commit(DropActionInput {
         can_copy: actions.contains(gtk::gdk::DragAction::COPY),
         can_move: actions.contains(gtk::gdk::DragAction::MOVE),
         volume,
         override_with,
-    }) {
+        strategy,
+    })
+}
+
+fn drop_commit_action(commit: DropCommit) -> gtk::gdk::DragAction {
+    match commit.transfer_kind() {
         TransferKind::Copy => gtk::gdk::DragAction::COPY,
         TransferKind::Move => gtk::gdk::DragAction::MOVE,
         TransferKind::Forbidden => gtk::gdk::DragAction::empty(),

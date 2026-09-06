@@ -23,9 +23,8 @@ use crate::{
 use super::{
     blur::BlurBin,
     browser::{
-        BrowserView, PeekBehavior, PinStatus, PreparedFileDrop, file_drop_action,
-        file_drop_commits_move, locations_from_file_list_value, prepare_file_drop_target,
-        show_error_dialog,
+        BrowserView, PeekBehavior, PinStatus, PreparedFileDrop, file_drop_action, file_drop_commit,
+        locations_from_file_list_value, prepare_file_drop_target, show_error_dialog,
     },
     browser_modes::{BrowserDensity, BrowserMode},
     motion::{animations_enabled, emphasized_deceleration},
@@ -2423,8 +2422,8 @@ fn install_sidebar_file_drop(
         if sources.is_empty() {
             return false;
         }
-        let move_sources = file_drop_commits_move(target, &destination, &sources, &drop_state);
-        view.start_transfer(destination.clone(), sources, move_sources);
+        let commit = file_drop_commit(target, &destination, &sources, &drop_state);
+        view.commit_file_drop(destination.clone(), sources, commit);
         true
     });
     row.add_controller(drop);

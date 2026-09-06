@@ -17,6 +17,7 @@ use gtk::{gio, glib, prelude::*};
 use crate::{
     app::{Browser, BrowserColumnSnapshot, BrowserEvent},
     model::{FileEntry, Location, MetadataValue, SortDirection, SortKey},
+    services::DropCommit,
 };
 
 const LIST_COLUMN_WIDTHS: [i32; 5] = [160, 110, 90, 120, 150];
@@ -50,7 +51,7 @@ impl ListColumnLayout {
     }
 }
 
-type TransferHandler = Rc<dyn Fn(Location, Vec<Location>, bool)>;
+type TransferHandler = Rc<dyn Fn(Location, Vec<Location>, DropCommit)>;
 type TransferHandlerSlot = Rc<RefCell<Option<TransferHandler>>>;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -3574,9 +3575,8 @@ fn install_mode_directory_drop_target(
         let Some(handler) = transfer_handler.borrow().clone() else {
             return false;
         };
-        let move_sources =
-            super::browser::file_drop_commits_move(target, &destination, &sources, &drop_state);
-        handler(destination.clone(), sources, move_sources);
+        let commit = super::browser::file_drop_commit(target, &destination, &sources, &drop_state);
+        handler(destination.clone(), sources, commit);
         true
     });
     widget.add_controller(drop);
@@ -3730,9 +3730,8 @@ fn install_list_drag_drop(
         let Some(handler) = transfer_handler.borrow().clone() else {
             return false;
         };
-        let move_sources =
-            super::browser::file_drop_commits_move(target, &destination, &sources, &drop_state);
-        handler(destination, sources, move_sources);
+        let commit = super::browser::file_drop_commit(target, &destination, &sources, &drop_state);
+        handler(destination, sources, commit);
         true
     });
     row.add_controller(drop);

@@ -35,6 +35,32 @@ pub(crate) enum DropOverride {
     ForceMove,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum CrossVolumeDropStrategy {
+    Copy,
+    Move,
+    #[default]
+    Ask,
+}
+
+impl CrossVolumeDropStrategy {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Copy => "always-copy",
+            Self::Move => "always-move",
+            Self::Ask => "always-ask",
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> Self {
+        match value {
+            "always-copy" => Self::Copy,
+            "always-move" => Self::Move,
+            _ => Self::Ask,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum TransferKind {
     Copy,
@@ -43,11 +69,31 @@ pub(crate) enum TransferKind {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DropCommit {
+    Copy,
+    Move,
+    Ask { default: TransferKind },
+    Forbidden,
+}
+
+impl DropCommit {
+    pub(crate) fn transfer_kind(self) -> TransferKind {
+        match self {
+            Self::Copy => TransferKind::Copy,
+            Self::Move => TransferKind::Move,
+            Self::Ask { default } => default,
+            Self::Forbidden => TransferKind::Forbidden,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct DropActionInput {
     pub can_copy: bool,
     pub can_move: bool,
     pub volume: VolumeRelation,
     pub override_with: DropOverride,
+    pub strategy: CrossVolumeDropStrategy,
 }
 
 /// Unknown if dest or any source identity is missing (URI hover, or a timed-out
@@ -78,29 +124,48 @@ pub(crate) fn volume_relation(
     }
 }
 
-pub(crate) fn preferred_transfer_kind(input: DropActionInput) -> TransferKind {
+pub(crate) fn drop_commit(input: DropActionInput) -> DropCommit {
     if !input.can_copy && !input.can_move {
-        return TransferKind::Forbidden;
+        return DropCommit::Forbidden;
     }
     match input.override_with {
-        DropOverride::ForceCopy if input.can_copy => return TransferKind::Copy,
-        DropOverride::ForceMove if input.can_move => return TransferKind::Move,
+        DropOverride::ForceCopy if input.can_copy => return DropCommit::Copy,
+        DropOverride::ForceMove if input.can_move => return DropCommit::Move,
         DropOverride::ForceCopy | DropOverride::ForceMove | DropOverride::None => {}
     }
     match input.volume {
         VolumeRelation::Same => {
             if input.can_move {
-                TransferKind::Move
+                DropCommit::Move
             } else {
-                TransferKind::Copy
+                DropCommit::Copy
             }
         }
-        VolumeRelation::Different | VolumeRelation::Unknown => {
-            if input.can_copy {
-                TransferKind::Copy
-            } else {
-                TransferKind::Move
-            }
+        VolumeRelation::Different | VolumeRelation::Unknown => cross_volume_commit(input),
+    }
+}
+
+fn cross_volume_commit(input: DropActionInput) -> DropCommit {
+    let preferred = if input.strategy == CrossVolumeDropStrategy::Move {
+        if input.can_move {
+            TransferKind::Move
+        } else {
+            TransferKind::Copy
+        }
+    } else if input.can_copy {
+        TransferKind::Copy
+    } else {
+        TransferKind::Move
+    };
+    if input.strategy == CrossVolumeDropStrategy::Ask && input.can_copy && input.can_move {
+        DropCommit::Ask {
+            default: TransferKind::Copy,
+        }
+    } else {
+        match preferred {
+            TransferKind::Copy => DropCommit::Copy,
+            TransferKind::Move => DropCommit::Move,
+            TransferKind::Forbidden => DropCommit::Forbidden,
         }
     }
 }
