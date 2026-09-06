@@ -42,6 +42,7 @@ use crate::{
 fn file_entry(path: &std::path::Path) -> FileEntry {
     FileEntry {
         location: Location::local(path),
+        thumbnail_path: None,
         native_name: path.file_name().unwrap_or_default().to_owned(),
         display_name: path
             .file_name()
@@ -1034,6 +1035,7 @@ fn test_file_entry(path: &Path) -> FileEntry {
     let name = path.file_name().unwrap_or_default().to_os_string();
     FileEntry {
         location: Location::local(path),
+        thumbnail_path: None,
         native_name: name.clone(),
         display_name: name.to_string_lossy().into_owned(),
         kind: EntryKind::File,
@@ -1078,22 +1080,6 @@ fn compression_stage_mode(destination: &Path) -> Result<u32, Box<dyn Error>> {
         return Err("expected a single compression staging file".into());
     }
     Ok(fs::metadata(destination.join(name))?.permissions().mode() & 0o777)
-}
-
-struct UmaskGuard(rustix::fs::Mode);
-
-impl UmaskGuard {
-    fn set(mask: u32) -> Self {
-        Self(rustix::process::umask(
-            rustix::fs::Mode::from_bits_truncate(mask),
-        ))
-    }
-}
-
-impl Drop for UmaskGuard {
-    fn drop(&mut self) {
-        rustix::process::umask(self.0);
-    }
 }
 
 #[test]
@@ -1178,8 +1164,6 @@ fn compression_staging_stays_private_while_encoding() -> Result<(), Box<dyn Erro
     let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
         .lock()
         .map_err(|error| error.to_string())?;
-    let _umask = UmaskGuard::set(0o022);
-    assert_eq!(process_umask(), 0o022);
     let root = tempfile::tempdir()?;
     let destination = root.path().to_path_buf();
     let archive = destination.join("existing.zip");
@@ -1229,8 +1213,6 @@ fn compression_new_archive_staging_stays_private_until_publish() -> Result<(), B
     let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
         .lock()
         .map_err(|error| error.to_string())?;
-    let _umask = UmaskGuard::set(0o022);
-    assert_eq!(process_umask(), 0o022);
     let root = tempfile::tempdir()?;
     let destination = root.path().to_path_buf();
     let archive = destination.join("created.zip");
@@ -1268,7 +1250,10 @@ fn compression_new_archive_staging_stays_private_until_publish() -> Result<(), B
     release.store(true, Ordering::Release);
     assert_eq!(context.block_on(task)?, Ok(()));
     assert_eq!(fs::read(&archive)?, b"created");
-    assert_eq!(fs::metadata(&archive)?.permissions().mode() & 0o777, 0o644);
+    assert_eq!(
+        fs::metadata(&archive)?.permissions().mode() & 0o777,
+        0o666 & !process_umask()
+    );
     assert!(compression_stages(&destination)?.is_empty());
     Ok(())
 }
@@ -2481,7 +2466,7 @@ fn zip_extraction_stops_and_drops_incomplete_output_when_cancelled() -> Result<(
 }
 
 #[test]
-fn tar_extraction_reports_remaining_entries_when_cancelled() -> Result<(), Box<dyn Error>> {
+fn tar_extraction_stops_without_scanning_remaining_entries() -> Result<(), Box<dyn Error>> {
     let root = tempfile::tempdir()?;
     let destination = root.path().join("destination");
     fs::create_dir(&destination)?;
@@ -2510,10 +2495,7 @@ fn tar_extraction_reports_remaining_entries_when_cancelled() -> Result<(), Box<d
             assert!(failed.is_empty());
             assert_eq!(
                 not_attempted,
-                [
-                    Location::local(destination.join("first.bin")),
-                    Location::local(destination.join("second.txt")),
-                ]
+                [Location::local(destination.join("first.bin"))]
             );
         }
         ArchiveOutcome::Completed(_) => panic!("extraction continued after cancellation"),

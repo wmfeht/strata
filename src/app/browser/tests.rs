@@ -735,6 +735,7 @@ fn cancelling_extraction_keeps_progress_until_the_worker_reports_cancellation() 
 
     let entry = FileEntry {
         location: Location::local("/fixture/archive.zip"),
+        thumbnail_path: None,
         native_name: OsString::from("archive.zip"),
         display_name: "archive.zip".into(),
         kind: EntryKind::File,

@@ -28,7 +28,7 @@ use std::{
 use gtk::{gio, glib, prelude::*};
 
 use crate::{
-    adapters::location_for_file,
+    adapters::{gio_file_for_location, location_for_file},
     model::Location,
     services::{
         ArchiveFormat, CancelledOperation, CompressRequest, CreateDirectoryRequest,
@@ -53,13 +53,6 @@ where
         start(object, &cancellable, result);
     })
     .await
-}
-
-fn gio_file(location: &Location) -> gio::File {
-    location
-        .native_path()
-        .map(gio::File::for_path)
-        .unwrap_or_else(|| gio::File::for_uri(location.uri_value().unwrap_or_default()))
 }
 
 struct TransferProgressTracker {
@@ -2098,7 +2091,7 @@ impl OperationProvider for LocalOperationProvider {
         let cancellable = gio::Cancellable::new();
         let operation_cancellable = cancellable.clone();
         let _task = glib::MainContext::default().spawn_local(async move {
-            let parent = gio_file(&request.parent);
+            let parent = gio_file_for_location(&request.parent);
             let folder = match validated_child(&parent, &request.name) {
                 Ok(folder) => folder,
                 Err(message) => {
@@ -2169,7 +2162,7 @@ impl OperationProvider for LocalOperationProvider {
         let cancellable = gio::Cancellable::new();
         let operation_cancellable = cancellable.clone();
         let _task = glib::MainContext::default().spawn_local(async move {
-            let parent = gio_file(&request.parent);
+            let parent = gio_file_for_location(&request.parent);
             let file = match validated_child(&parent, &request.name) {
                 Ok(file) => file,
                 Err(message) => {
@@ -2237,7 +2230,7 @@ impl OperationProvider for LocalOperationProvider {
         let cancellable = gio::Cancellable::new();
         let operation_cancellable = cancellable.clone();
         let _task = glib::MainContext::default().spawn_local(async move {
-            let destination = gio_file(&request.destination);
+            let destination = gio_file_for_location(&request.destination);
             let mut affected_locations = HashSet::from([request.destination.clone()]);
             for parent in request.items.iter().filter_map(|item| item.source.parent()) {
                 affected_locations.insert(parent);
@@ -2245,7 +2238,7 @@ impl OperationProvider for LocalOperationProvider {
             let sources = request
                 .items
                 .iter()
-                .map(|item| gio_file(&item.source))
+                .map(|item| gio_file_for_location(&item.source))
                 .collect::<Vec<_>>();
             let (item_sizes, total_bytes) =
                 match transfer_sizes(&sources, &operation_cancellable).await {
@@ -2464,7 +2457,7 @@ impl OperationProvider for LocalOperationProvider {
             let sources = request
                 .items
                 .iter()
-                .map(|item| gio_file(&item.record.current))
+                .map(|item| gio_file_for_location(&item.record.current))
                 .collect::<Vec<_>>();
             let (item_sizes, total_bytes) =
                 match transfer_sizes(&sources, &operation_cancellable).await {
@@ -2514,7 +2507,7 @@ impl OperationProvider for LocalOperationProvider {
                 }
                 let source = sources[index].clone();
                 let item_started_at = progress.transferred_bytes.get();
-                let target = gio_file(&item.record.original);
+                let target = gio_file_for_location(&item.record.original);
                 let result = if item.conflict == TransferConflict::ReplaceExisting {
                     replace_local_with_progress(
                         source,
@@ -2601,7 +2594,7 @@ impl OperationProvider for LocalOperationProvider {
                     ));
                     return;
                 }
-                let file = gio_file(&entry.location);
+                let file = gio_file_for_location(&entry.location);
                 let result = if request.permanent {
                     if entry
                         .location
@@ -2743,9 +2736,9 @@ impl OperationProvider for LocalOperationProvider {
                     ));
                     return;
                 }
-                let source = gio_file(&entry.source);
+                let source = gio_file_for_location(&entry.source);
                 let result = if let Some(original_target) = entry.original_target.clone() {
-                    let target = gio_file(&original_target);
+                    let target = gio_file_for_location(&original_target);
                     if let Some(parent) = original_target.parent() {
                         affected_locations.insert(parent);
                     }
@@ -3483,15 +3476,6 @@ fn tar_entry_location<'a, R: std::io::Read + 'a>(
     Some(extract_entry_location(dest_dir, &path))
 }
 
-fn remaining_tar_locations<'a, R: std::io::Read + 'a>(
-    entries: impl Iterator<Item = io::Result<tar::Entry<'a, R>>>,
-    dest_dir: &Path,
-) -> Vec<Location> {
-    entries
-        .filter_map(|entry| tar_entry_location(entry.ok()?, dest_dir))
-        .collect()
-}
-
 fn sevenz_locations_from(
     dest_dir: &Path,
     names: &[String],
@@ -3719,14 +3703,14 @@ fn extract_tar(
     let mut resolver = ExtractNameResolver::new();
     let mut first_name = None;
     let mut completed = Vec::new();
-    let mut entries = archive.entries().map_err(archive_failed)?;
-    while let Some(entry) = entries.next() {
+    let entries = archive.entries().map_err(archive_failed)?;
+    for entry in entries {
         if cancelled.load(Ordering::Relaxed) {
-            let mut not_attempted = Vec::new();
-            if let Ok(entry) = entry {
-                not_attempted.extend(tar_entry_location(entry, dest_dir));
-            }
-            not_attempted.extend(remaining_tar_locations(entries, dest_dir));
+            let not_attempted = entry
+                .ok()
+                .and_then(|entry| tar_entry_location(entry, dest_dir))
+                .into_iter()
+                .collect();
             return Ok(ArchiveOutcome::Cancelled {
                 completed,
                 failed: Vec::new(),
@@ -3751,10 +3735,13 @@ fn extract_tar(
                 drop(outfile);
                 drop(entry);
                 let removed = destination.remove_file(&created);
-                let remaining = remaining_tar_locations(entries, dest_dir);
                 return match error {
                     ArchiveError::Cancelled => Ok(cancelled_extract_after_partial_write(
-                        dest_dir, &created, completed, remaining, removed,
+                        dest_dir,
+                        &created,
+                        completed,
+                        Vec::new(),
+                        removed,
                     )),
                     failed => Err(failed),
                 };
