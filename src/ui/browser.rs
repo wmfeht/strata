@@ -674,6 +674,7 @@ impl BrowserView {
         if column.map.view_position(position) != Some(0) {
             return false;
         }
+        column.set_header_actions_expanded(true, false);
         let mut control = column.header_actions.first_child();
         let focused = loop {
             let Some(candidate) = control else {
@@ -728,7 +729,10 @@ impl BrowserView {
         let Some(column) = adjacent.and_then(|index| columns.get(index)) else {
             return false;
         };
+        column.set_header_actions_expanded(true, false);
         let moved = focus_header_action(&column.header_actions, direction);
+        drop(columns);
+        self.state.refresh_column_header_chrome();
         if moved && let Some(window) = self.state.overlay.root().and_downcast::<gtk::Window>() {
             window.set_focus_visible(true);
         }
@@ -1359,6 +1363,7 @@ impl ViewState {
                 "Keyboard · Paste here"
             });
         }
+        self.refresh_column_header_chrome();
     }
 
     fn focused_column_depth(&self) -> Option<usize> {

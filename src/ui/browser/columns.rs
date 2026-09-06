@@ -34,6 +34,8 @@ const COLUMN_OFFSET: i32 = 24;
 
 const COLUMN_TRANSITION: Duration = Duration::from_millis(220);
 
+const HEADER_ACTIONS_TRANSITION: Duration = Duration::from_millis(160);
+
 pub(super) struct BoundRow {
     pub(super) item: glib::WeakRef<gtk::ListItem>,
     pub(super) row: glib::WeakRef<gtk::Box>,
@@ -68,6 +70,8 @@ pub(super) struct ColumnView {
     pub(super) map: ViewMap,
     pub(super) model_generation: Rc<Cell<u64>>,
     pub(super) header_actions: gtk::Box,
+    pub(super) header_actions_revealer: gtk::Revealer,
+    pub(super) header_overflow_revealer: gtk::Revealer,
     pub(super) filter_entry: gtk::Entry,
     pub(super) filter_button: gtk::ToggleButton,
     pub(super) selection: gtk::MultiSelection,
@@ -129,6 +133,28 @@ pub(super) fn stop_column_spinner(column: &ColumnView) {
     cancel_column_spinner(column);
     column.spinner.stop();
     column.spinner.set_visible(false);
+}
+
+impl ColumnView {
+    pub(super) fn set_header_actions_expanded(&self, expanded: bool, animate: bool) {
+        let duration = if animate && animations_enabled() {
+            HEADER_ACTIONS_TRANSITION
+                .as_millis()
+                .min(u128::from(u32::MAX)) as u32
+        } else {
+            0
+        };
+        self.header_actions_revealer
+            .set_transition_duration(duration);
+        self.header_overflow_revealer
+            .set_transition_duration(duration);
+        if self.header_actions_revealer.reveals_child() != expanded {
+            self.header_actions_revealer.set_reveal_child(expanded);
+        }
+        if self.header_overflow_revealer.reveals_child() == expanded {
+            self.header_overflow_revealer.set_reveal_child(!expanded);
+        }
+    }
 }
 
 pub(super) fn set_column_busy(column: &ColumnView, busy: bool) {
@@ -440,6 +466,20 @@ impl ViewState {
         });
     }
 
+    pub(super) fn refresh_column_header_chrome(&self) {
+        let count = self.columns.borrow().len();
+        let hovered = self.hovered_column.get();
+        let focused = self.focused_column_depth();
+        let active = self.browser.active_depth();
+        for (depth, column) in self.columns.borrow().iter().enumerate() {
+            let expanded = count <= 1
+                || hovered == Some(depth)
+                || focused == Some(depth)
+                || active == Some(depth);
+            column.set_header_actions_expanded(expanded, true);
+        }
+    }
+
     pub(super) fn refresh_active_path_rows(&self) {
         self.refresh_destination_style();
         for (depth, column) in self.columns.borrow().iter().enumerate() {
@@ -569,7 +609,30 @@ impl ViewState {
             });
             header_actions.append(&close);
         }
-        header.append(&header_actions);
+        let overflow = gtk::Label::new(Some("…"));
+        overflow.add_css_class("column-header-overflow");
+        overflow.set_tooltip_text(Some("Column actions"));
+        overflow.set_valign(gtk::Align::Center);
+        overflow.set_can_focus(false);
+        overflow.update_property(&[gtk::accessible::Property::Label("Column actions")]);
+        let header_overflow_revealer = gtk::Revealer::builder()
+            .transition_type(gtk::RevealerTransitionType::SlideLeft)
+            .transition_duration(0)
+            .reveal_child(false)
+            .child(&overflow)
+            .build();
+        header_overflow_revealer.add_css_class("column-header-overflow-revealer");
+        header_overflow_revealer.set_valign(gtk::Align::Center);
+        let header_actions_revealer = gtk::Revealer::builder()
+            .transition_type(gtk::RevealerTransitionType::SlideLeft)
+            .transition_duration(0)
+            .reveal_child(true)
+            .child(&header_actions)
+            .build();
+        header_actions_revealer.add_css_class("column-header-actions-revealer");
+        header_actions_revealer.set_valign(gtk::Align::Center);
+        header.append(&header_overflow_revealer);
+        header.append(&header_actions_revealer);
         column.append(&header);
         column.append(&filter_revealer);
 
@@ -1116,6 +1179,8 @@ impl ViewState {
             map,
             model_generation: self.source_generation.clone(),
             header_actions,
+            header_actions_revealer,
+            header_overflow_revealer,
             filter_entry,
             filter_button,
             selection,
@@ -1222,6 +1287,7 @@ impl ViewState {
         if let Some(retained) = retained {
             self.reveal_column(retained);
         }
+        self.refresh_column_header_chrome();
     }
 }
 

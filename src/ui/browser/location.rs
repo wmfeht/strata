@@ -790,6 +790,7 @@ impl ViewState {
     pub(super) fn follow_column(self: &Rc<Self>, depth: usize) {
         self.browser.set_active_column(depth);
         self.sync_active_location();
+        self.refresh_column_header_chrome();
     }
 
     /// Address bar tracks the focused Miller column, not only the deepest open path.
