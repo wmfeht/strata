@@ -21,10 +21,11 @@ use crate::{
         EntryKind, FileEntry, FolderColor, FolderColorValue, Location, SortDirection, SortKey,
     },
     services::{
-        ArchiveFormat, FileSource, LoadHandle, LocationValidationError, MoveRecord,
+        ArchiveFormat, ConflictChoice, FileSource, LoadHandle, LocationValidationError, MoveRecord,
         OperationProvider, PasteItem, PreviewContent, SearchEvent, TransferConflict, UndoMoveItem,
         UriCredentials, backend_unavailable_message, content_family, has_plain_text_extension,
-        index_tree, is_extensionless_dotfile, sanitize_uri_credentials, validate_basename,
+        index_tree, is_extensionless_dotfile, resolve_conflict_choice, sanitize_uri_credentials,
+        validate_basename,
     },
 };
 
@@ -1608,18 +1609,7 @@ impl ViewState {
         sources: Vec<Location>,
         move_sources: bool,
     ) {
-        let mut accepted = Vec::new();
-        let mut collisions = Vec::new();
-        for source in sources {
-            if transfer_has_collision(&source, &destination) {
-                collisions.push(source);
-            } else {
-                accepted.push(PasteItem {
-                    source,
-                    conflict: TransferConflict::FailIfExists,
-                });
-            }
-        }
+        let (accepted, collisions) = partition_transfer_sources(destination.clone(), sources);
         self.resolve_transfer_collisions(destination, collisions, accepted, move_sources);
     }
 
@@ -1637,7 +1627,7 @@ impl ViewState {
         let source = collisions.remove(0);
         let name = source.display_name();
         let explanation = format!(
-            "An item named \u{201c}{name}\u{201d} already exists in {}. Replacing it will overwrite its contents.",
+            "An item named \u{201c}{name}\u{201d} already exists in {}. Keep both creates a unique name. Replacing overwrites the existing item.",
             compact_display_path(&destination)
         );
         let state = self.clone();
@@ -1648,22 +1638,11 @@ impl ViewState {
             Rc::new(move |choice, apply_to_all| {
                 let mut accepted = accepted.clone();
                 let mut remaining = collisions.clone();
-                match choice {
-                    ConflictChoice::Replace => {
-                        accepted.push(PasteItem {
-                            source: source.clone(),
-                            conflict: TransferConflict::ReplaceExisting,
-                        });
-                        if apply_to_all {
-                            accepted.extend(remaining.drain(..).map(|source| PasteItem {
-                                source,
-                                conflict: TransferConflict::ReplaceExisting,
-                            }));
-                        }
-                    }
-                    ConflictChoice::Skip if apply_to_all => remaining.clear(),
-                    ConflictChoice::Skip => {}
-                }
+                accepted.extend(
+                    resolve_conflict_choice(choice, apply_to_all, source.clone(), &mut remaining)
+                        .into_iter()
+                        .map(|(source, conflict)| PasteItem { source, conflict }),
+                );
                 state.resolve_transfer_collisions(
                     destination.clone(),
                     remaining,
@@ -1721,7 +1700,7 @@ impl ViewState {
             .parent()
             .unwrap_or_else(|| record.original.clone());
         let explanation = format!(
-            "An item named \u{201c}{name}\u{201d} already exists in {}. Undoing the move will overwrite its contents.",
+            "An item named \u{201c}{name}\u{201d} already exists in {}. Keep both restores it under a unique name. Replacing overwrites the existing item.",
             compact_display_path(&parent)
         );
         let state = self.clone();
@@ -1732,29 +1711,18 @@ impl ViewState {
             Rc::new(move |choice, apply_to_all| {
                 let mut accepted = accepted.clone();
                 let mut remaining = collisions.clone();
-                match choice {
-                    ConflictChoice::Replace => {
-                        accepted.push(UndoMoveItem {
-                            record: record.clone(),
-                            conflict: TransferConflict::ReplaceExisting,
-                        });
-                        if apply_to_all {
-                            accepted.extend(remaining.drain(..).map(|record| UndoMoveItem {
-                                record,
-                                conflict: TransferConflict::ReplaceExisting,
-                            }));
-                        }
-                    }
-                    ConflictChoice::Skip if apply_to_all => remaining.clear(),
-                    ConflictChoice::Skip => {}
-                }
+                accepted.extend(
+                    resolve_conflict_choice(choice, apply_to_all, record.clone(), &mut remaining)
+                        .into_iter()
+                        .map(|(record, conflict)| UndoMoveItem { record, conflict }),
+                );
                 state.resolve_undo_collisions(generation, remaining, accepted);
             }),
         );
     }
 
-    /// Asks whether one conflicting item should be replaced or skipped.
-    /// Cancelling abandons the whole operation, so `on_choice` never runs.
+    /// Asks how to resolve one name collision.
+    /// Cancel, Escape, and the dialog X abandon the operation, so `on_choice` never runs.
     fn confirm_replace_conflict(
         &self,
         name: &str,
@@ -1780,8 +1748,8 @@ impl ViewState {
             crate::assets::icons::COPY,
             "File already exists",
             name,
-            "Replace",
-            ModalTone::Danger,
+            "Keep both",
+            ModalTone::Accent,
         );
         layout.body.append(&message_dialog_description(explanation));
         let apply_all = form_check_button("Apply this choice to all remaining conflicts");
@@ -1789,25 +1757,37 @@ impl ViewState {
         layout.body.append(&apply_all);
         let skip = gtk::Button::with_label("Skip");
         skip.add_css_class("action-dialog-cancel");
+        let replace = gtk::Button::with_label("Replace");
+        replace.add_css_class("action-dialog-confirm");
+        replace.add_css_class("danger");
         layout
             .actions
             .insert_child_after(&skip, Some(&layout.cancel));
+        layout.actions.insert_child_after(&replace, Some(&skip));
         let content = layout.content;
+        let close = layout.close;
         let cancel = layout.cancel;
-        let replace = layout.confirm;
+        let keep_both = layout.confirm;
 
         let layer = modal_layer(&content, &window_overlay, blurred_root.clone(), None);
         window_overlay.add_overlay(&layer);
-        let cancel_layer = layer.clone();
-        let cancel_overlay = window_overlay.clone();
-        let cancel_root = blurred_root.clone();
-        cancel.connect_clicked(move |_| {
-            dismiss_modal_layer(&cancel_layer, &cancel_overlay, cancel_root.as_ref());
-        });
+        for dismiss in [&close, &cancel] {
+            let dismissed_layer = layer.clone();
+            let dismissed_overlay = window_overlay.clone();
+            let dismissed_root = blurred_root.clone();
+            dismiss.connect_clicked(move |_| {
+                dismiss_modal_layer(
+                    &dismissed_layer,
+                    &dismissed_overlay,
+                    dismissed_root.as_ref(),
+                );
+            });
+        }
 
         for (button, choice) in [
             (skip.clone(), ConflictChoice::Skip),
             (replace.clone(), ConflictChoice::Replace),
+            (keep_both.clone(), ConflictChoice::KeepBoth),
         ] {
             let chosen_layer = layer.clone();
             let chosen_overlay = window_overlay.clone();
@@ -1825,20 +1805,20 @@ impl ViewState {
         let escaped_layer = layer.clone();
         let escaped_overlay = window_overlay;
         let escaped_root = blurred_root;
-        let enter_replace = replace.clone();
+        let enter_keep_both = keep_both.clone();
         escape.connect_key_pressed(move |_, key, _, _| {
             if key == gtk::gdk::Key::Escape {
                 dismiss_modal_layer(&escaped_layer, &escaped_overlay, escaped_root.as_ref());
                 glib::Propagation::Stop
             } else if key == gtk::gdk::Key::Return || key == gtk::gdk::Key::KP_Enter {
-                enter_replace.emit_clicked();
+                enter_keep_both.emit_clicked();
                 glib::Propagation::Stop
             } else {
                 glib::Propagation::Proceed
             }
         });
         layer.add_controller(escape);
-        replace.grab_focus();
+        keep_both.grab_focus();
     }
 
     fn copy_entries(&self, entries: &[FileEntry]) {
@@ -8304,12 +8284,6 @@ fn install_directory_drop_target(
     widget.add_controller(drop);
 }
 
-#[derive(Clone, Copy)]
-enum ConflictChoice {
-    Replace,
-    Skip,
-}
-
 fn location_exists(location: &Location) -> bool {
     gio_file_for_location(location).query_exists(None::<&gio::Cancellable>)
 }
@@ -8325,6 +8299,25 @@ fn transfer_has_collision(source: &Location, destination: &Location) -> bool {
         return false;
     }
     target.query_exists(None::<&gio::Cancellable>)
+}
+
+fn partition_transfer_sources(
+    destination: Location,
+    sources: Vec<Location>,
+) -> (Vec<PasteItem>, Vec<Location>) {
+    let mut accepted = Vec::new();
+    let mut collisions = Vec::new();
+    for source in sources {
+        if transfer_has_collision(&source, &destination) {
+            collisions.push(source);
+        } else {
+            accepted.push(PasteItem {
+                source,
+                conflict: TransferConflict::FailIfExists,
+            });
+        }
+    }
+    (accepted, collisions)
 }
 
 fn normalized_archive_name(name: &str, format: ArchiveFormat) -> String {

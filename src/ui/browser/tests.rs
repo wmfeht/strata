@@ -660,7 +660,9 @@ fn transfer_collisions_detect_existing_destination_items() -> Result<(), Box<dyn
     std::fs::create_dir_all(&source_dir)?;
     std::fs::create_dir_all(&destination)?;
     let source = source_dir.join("photo.jpg");
+    let notes = source_dir.join("notes.txt");
     std::fs::write(&source, b"new")?;
+    std::fs::write(&notes, b"notes")?;
 
     assert!(!transfer_has_collision(
         &Location::local(&source),
@@ -675,6 +677,49 @@ fn transfer_collisions_detect_existing_destination_items() -> Result<(), Box<dyn
         &Location::local(&source),
         &Location::local(&destination)
     ));
+    assert!(!transfer_has_collision(
+        &Location::local(&notes),
+        &Location::local(&destination)
+    ));
+
+    let (accepted, collisions) = partition_transfer_sources(
+        Location::local(&destination),
+        vec![
+            Location::local(&source),
+            Location::local(&notes),
+            Location::local(&source),
+        ],
+    );
+    assert_eq!(
+        collisions,
+        vec![Location::local(&source), Location::local(&source)]
+    );
+    assert_eq!(
+        accepted,
+        vec![PasteItem {
+            source: Location::local(&notes),
+            conflict: TransferConflict::FailIfExists,
+        }]
+    );
+
+    let (same_folder, same_folder_collisions) = partition_transfer_sources(
+        Location::local(&source_dir),
+        vec![Location::local(&source), Location::local(&notes)],
+    );
+    assert!(same_folder_collisions.is_empty());
+    assert_eq!(
+        same_folder,
+        vec![
+            PasteItem {
+                source: Location::local(&source),
+                conflict: TransferConflict::FailIfExists,
+            },
+            PasteItem {
+                source: Location::local(&notes),
+                conflict: TransferConflict::FailIfExists,
+            },
+        ]
+    );
 
     std::fs::remove_dir_all(root)?;
     Ok(())
