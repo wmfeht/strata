@@ -75,9 +75,9 @@ fn header_states(view: &BrowserView) -> Vec<(bool, bool)> {
 }
 
 #[test]
-fn inactive_miller_columns_collapse_header_actions_until_hover_or_focus() {
+fn miller_header_actions_follow_only_the_active_column() {
     gtk_test(
-        "ui::browser::columns::tests::header_chrome::inactive_miller_columns_collapse_header_actions_until_hover_or_focus",
+        "ui::browser::columns::tests::header_chrome::miller_header_actions_follow_only_the_active_column",
         || {
             let view = BrowserView::new(
                 Rc::new(crate::adapters::LocalFileSource),
@@ -115,23 +115,17 @@ fn inactive_miller_columns_collapse_header_actions_until_hover_or_focus() {
             view.state.hovered_column.set(Some(0));
             view.state.refresh_destination_style();
             let states = header_states(&view);
-            assert_eq!(states[0], (true, false), "hover rolls out the icons bar");
+            assert_eq!(
+                states[0],
+                (false, true),
+                "pointer rest on an inactive column does not show its icons"
+            );
             assert_eq!(states[1], (false, true));
             assert_eq!(
                 states[2],
                 (true, false),
-                "active column stays expanded during hover elsewhere"
+                "active column stays the only expanded icons bar"
             );
-
-            view.state.hovered_column.set(None);
-            view.state.refresh_destination_style();
-            let states = header_states(&view);
-            assert_eq!(
-                states[0],
-                (false, true),
-                "inactive column collapses after hover ends"
-            );
-            assert_eq!(states[2], (true, false));
 
             view.state.columns.borrow()[1].list.grab_focus();
             wait_until(|| view.state.focused_column_depth() == Some(1));
@@ -155,6 +149,22 @@ fn inactive_miller_columns_collapse_header_actions_until_hover_or_focus() {
             );
             assert_eq!(browser.active_depth(), Some(1));
             assert!(browser.column_snapshot(2).is_some());
+            assert_eq!(
+                header_states(&view)
+                    .iter()
+                    .filter(|(expanded, _)| *expanded)
+                    .count(),
+                1,
+                "exactly one column shows header icons"
+            );
+
+            view.state.columns.borrow()[0].list.grab_focus();
+            wait_until(|| view.state.focused_column_depth() == Some(0));
+            view.state.refresh_destination_style();
+            let states = header_states(&view);
+            assert_eq!(states[0], (true, false));
+            assert_eq!(states[1], (false, true));
+            assert_eq!(states[2], (false, true));
 
             browser.clear_observer();
             window.destroy();

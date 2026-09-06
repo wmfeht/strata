@@ -2088,6 +2088,10 @@ menubutton.column-header-action > button:active {
   color: alpha(@theme_text, 0.72);
 }
 
+.column-header-overflow:hover {
+  color: @theme_text;
+}
+
 .column-header-overflow-revealer,
 .column-header-actions-revealer {
   padding: 0;

@@ -466,16 +466,16 @@ impl ViewState {
         });
     }
 
+    fn header_chrome_column(&self) -> Option<usize> {
+        self.focused_column_depth()
+            .or_else(|| self.browser.active_depth())
+    }
+
     pub(super) fn refresh_column_header_chrome(&self) {
         let count = self.columns.borrow().len();
-        let hovered = self.hovered_column.get();
-        let focused = self.focused_column_depth();
-        let active = self.browser.active_depth();
+        let current = self.header_chrome_column();
         for (depth, column) in self.columns.borrow().iter().enumerate() {
-            let expanded = count <= 1
-                || hovered == Some(depth)
-                || focused == Some(depth)
-                || active == Some(depth);
+            let expanded = count <= 1 || current == Some(depth);
             column.set_header_actions_expanded(expanded, true);
         }
     }
@@ -611,10 +611,24 @@ impl ViewState {
         }
         let overflow = gtk::Label::new(Some("…"));
         overflow.add_css_class("column-header-overflow");
-        overflow.set_tooltip_text(Some("Column actions"));
+        overflow.set_tooltip_text(Some("Show column actions"));
         overflow.set_valign(gtk::Align::Center);
         overflow.set_can_focus(false);
-        overflow.update_property(&[gtk::accessible::Property::Label("Column actions")]);
+        overflow.update_property(&[gtk::accessible::Property::Label("Show column actions")]);
+        let overflow_click = gtk::GestureClick::new();
+        overflow_click.set_button(1);
+        let weak = Rc::downgrade(self);
+        overflow_click.connect_pressed(move |_, _, _, _| {
+            let Some(state) = weak.upgrade() else {
+                return;
+            };
+            state.follow_column(depth);
+            if let Some(column) = state.columns.borrow().get(depth) {
+                column.list.grab_focus();
+            }
+            state.refresh_column_header_chrome();
+        });
+        overflow.add_controller(overflow_click);
         let header_overflow_revealer = gtk::Revealer::builder()
             .transition_type(gtk::RevealerTransitionType::SlideLeft)
             .transition_duration(0)
