@@ -506,6 +506,7 @@ impl ViewState {
         header.append(&spinner);
         let header_actions = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         header_actions.add_css_class("column-header-actions");
+        header_actions.set_visible(false);
         let empty_trash = empty_trash_button(&self.browser);
         let is_trash = is_trash_root(location);
         empty_trash.set_visible(is_trash);
@@ -1143,9 +1144,17 @@ impl ViewState {
             set_column_busy(column, true);
             arm_column_spinner(column);
         }
+        self.sync_column_header_actions();
         self.refresh_active_path_rows();
         animate_column_entry(&shell, &column, &animation_generation);
         self.reveal_column(shell);
+    }
+
+    pub(super) fn sync_column_header_actions(&self) {
+        let active = self.browser.active_depth();
+        for (depth, column) in self.columns.borrow().iter().enumerate() {
+            column.header_actions.set_visible(Some(depth) == active);
+        }
     }
 
     fn reveal_column(self: &Rc<Self>, shell: gtk::Box) {

@@ -725,7 +725,13 @@ impl BrowserView {
             gtk::DirectionType::Right => (index + 1 < columns.len()).then_some(index + 1),
             _ => None,
         };
-        let Some(column) = adjacent.and_then(|index| columns.get(index)) else {
+        let Some(adjacent) = adjacent else {
+            return false;
+        };
+        drop(columns);
+        self.state.follow_column(adjacent);
+        let columns = self.state.columns.borrow();
+        let Some(column) = columns.get(adjacent) else {
             return false;
         };
         let moved = focus_header_action(&column.header_actions, direction);
@@ -1237,6 +1243,7 @@ impl ViewState {
             if let Some(depth) = self.focused_column_depth() {
                 self.browser.set_active_column(depth);
             }
+            self.sync_column_header_actions();
             return;
         }
         let Some((depth, positions)) = self.mode_views.borrow().selected_positions() else {

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+mod header_actions;
 mod spinner;
 
 use super::*;

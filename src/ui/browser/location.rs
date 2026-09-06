@@ -794,6 +794,7 @@ impl ViewState {
 
     /// Address bar tracks the focused Miller column, not only the deepest open path.
     pub(super) fn sync_active_location(self: &Rc<Self>) {
+        self.sync_column_header_actions();
         if self.location_stack.visible_child_name().as_deref() == Some("entry") {
             return;
         }
