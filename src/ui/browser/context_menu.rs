@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use super::chooser_context;
+use crate::adapters::gio_file_for_location;
 use crate::model::{FileEntry, Location};
 use crate::services::is_extractable_archive;
-use crate::ui::browser::clipboard::copy_locations;
+use crate::ui::browser::clipboard::{copy_locations, locations_equal};
 use crate::ui::browser::customization::show_customize_modal;
 use crate::ui::browser::desktop::{can_open_terminal, launch_terminal};
 use crate::ui::browser::entry::{entry_icon, entry_supports_printing};
@@ -12,8 +13,8 @@ use crate::ui::browser::paths::{
 };
 use crate::ui::browser::{PinStatus, ViewState};
 use crate::ui::browser_modes::BrowserMode;
-use gtk::glib;
 use gtk::prelude::*;
+use gtk::{gio, glib};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
@@ -56,6 +57,50 @@ pub(super) fn context_menu_popover(
             .build(),
         scroll,
     )
+}
+
+pub(super) fn bind_column_context_owner(
+    state: &Rc<ViewState>,
+    popover: &gtk::Popover,
+    depth: usize,
+) {
+    let weak = Rc::downgrade(state);
+    popover.connect_closed(move |_| {
+        if let Some(state) = weak.upgrade()
+            && state.context_menu_column.get() == Some(depth)
+        {
+            // Unmapping can focus the window's first control (for example Home).
+            // Restore before another key is dispatched, not from a later idle callback.
+            if state.browser.active_depth() == Some(depth) {
+                state.browser.focus_active();
+            }
+            let generation = state.context_menu_generation.get();
+            let weak = Rc::downgrade(&state);
+            glib::idle_add_local_once(move || {
+                if let Some(state) = weak.upgrade()
+                    && state.context_menu_generation.get() == generation
+                    && state.context_menu_column.get() == Some(depth)
+                {
+                    state.context_menu_column.set(None);
+                    state.refresh_destination_style();
+                }
+            });
+        }
+    });
+}
+
+pub(super) fn focus_context_column(state: &Rc<ViewState>, depth: usize) {
+    if state.mode_views.borrow().mode() != crate::ui::browser_modes::BrowserMode::Columns {
+        return;
+    }
+    state
+        .context_menu_generation
+        .set(state.context_menu_generation.get().wrapping_add(1));
+    state.context_menu_column.set(Some(depth));
+    state.browser.set_active_column(depth);
+    // GTK restores pre-popup focus on dismissal; make that the menu's own column.
+    state.browser.focus_active();
+    state.pointer_navigation();
 }
 
 pub(super) fn show_context_popover(
@@ -104,6 +149,7 @@ pub(in crate::ui) fn install_folder_context_menu(
     content.add_css_class("folder-context-menu");
     let (popover, scroll) = context_menu_popover(&content);
     popover.add_css_class("folder-context-popover");
+    bind_column_context_owner(state, &popover, depth);
 
     let new_folder = context_menu_option(
         crate::assets::icons::FOLDER_PLUS,
@@ -250,6 +296,7 @@ pub(in crate::ui) fn install_folder_context_menu(
     let popover_for_click = popover.clone();
     let browser_for_click = state.browser.clone();
     let scroll_for_click = scroll.clone();
+    let weak_state = Rc::downgrade(state);
     menu_click.connect_pressed(move |gesture, _, x, y| {
         let over_item = gesture
             .widget()
@@ -281,7 +328,10 @@ pub(in crate::ui) fn install_folder_context_menu(
                 crate::assets::icons::EYE_OFF
             },
         );
-        if let Some(anchor) = gesture.widget() {
+        if let Some(anchor) = gesture.widget()
+            && let Some(state) = weak_state.upgrade()
+        {
+            focus_context_column(&state, depth);
             show_context_popover(&popover_for_click, &scroll_for_click, &anchor, x, y);
         }
     });
@@ -342,6 +392,7 @@ pub(in crate::ui) fn install_item_context_menu(
 
     let single = gtk::Box::new(gtk::Orientation::Vertical, 0);
     let open = item_context_option(crate::assets::icons::EXTERNAL_LINK, "Open", "↵");
+    let open_with = item_context_option(crate::assets::icons::EXTERNAL_LINK, "Open With…", "");
     let open_terminal =
         item_context_option(crate::assets::icons::TERMINAL, "Open in Terminal", "Ctrl+T");
     let preview = item_context_option(crate::assets::icons::EYE, "Quick preview", "Space");
@@ -379,6 +430,7 @@ pub(in crate::ui) fn install_item_context_menu(
     let extract = item_context_option(crate::assets::icons::FILE_ARCHIVE, "Extract here", "");
     let extract_to = item_context_option(crate::assets::icons::FILE_ARCHIVE, "Extract to…", "");
     single.append(&open);
+    single.append(&open_with);
     single.append(&open_terminal);
     single.append(&preview);
     single.append(&print);
@@ -407,6 +459,8 @@ pub(in crate::ui) fn install_item_context_menu(
     content.append(&single);
 
     let multiple = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    let open_with_multiple =
+        item_context_option(crate::assets::icons::EXTERNAL_LINK, "Open With…", "");
     let restore_multiple = item_context_option(crate::assets::icons::FOLDER, "Restore items", "");
     restore_multiple.set_visible(in_trash);
     let copy_multiple = item_context_option(crate::assets::icons::COPY, "Copy", "Ctrl+C");
@@ -429,6 +483,7 @@ pub(in crate::ui) fn install_item_context_menu(
     permanent_delete_multiple.add_css_class("danger");
     let compress_multiple =
         item_context_option(crate::assets::icons::FILE_ARCHIVE, "Compress…", "");
+    multiple.append(&open_with_multiple);
     multiple.append(&restore_multiple);
     multiple.append(&cut_multiple);
     multiple.append(&copy_multiple);
@@ -448,9 +503,16 @@ pub(in crate::ui) fn install_item_context_menu(
 
     let (popover, scroll) = context_menu_popover(&content);
     popover.add_css_class("folder-context-popover");
-    popover.connect_closed(|popover| popover.unparent());
+    bind_column_context_owner(state, &popover, depth);
 
     let target = Rc::new(RefCell::new(None::<(usize, FileEntry)>));
+    let open_with_selection = Rc::new(RefCell::new(None::<OpenWithSelection>));
+    let open_with_generation = Rc::new(Cell::new(0_u64));
+    let generation_for_close = open_with_generation.clone();
+    popover.connect_closed(move |popover| {
+        generation_for_close.set(generation_for_close.get().wrapping_add(1));
+        popover.unparent();
+    });
     let weak = Rc::downgrade(state);
     let open_target = target.clone();
     let open_popover = popover.downgrade();
@@ -467,6 +529,62 @@ pub(in crate::ui) fn install_item_context_menu(
             } else {
                 state.browser.activate_in_place(depth, position);
             }
+        }
+    });
+    let open_with_target = target.clone();
+    let open_with_state = Rc::downgrade(state);
+    let open_with_popover = popover.downgrade();
+    let open_with_selection_for_click = open_with_selection.clone();
+    open_with.connect_clicked(move |_| {
+        if let Some(popover) = open_with_popover.upgrade() {
+            popover.popdown();
+        }
+        let Some(state) = open_with_state.upgrade() else {
+            return;
+        };
+        let Some(selection) = open_with_selection_for_click.borrow().clone() else {
+            return;
+        };
+        if selection.entries_match_target(&context_entries(&state, &open_with_target)) {
+            let browser = Rc::downgrade(&state.browser);
+            crate::ui::open_with::show(
+                &state.overlay,
+                selection.files,
+                selection.apps,
+                Rc::new(move || {
+                    if let Some(browser) = browser.upgrade() {
+                        browser.focus_active();
+                    }
+                }),
+            );
+        }
+    });
+    let open_with_multiple_target = target.clone();
+    let open_with_multiple_state = Rc::downgrade(state);
+    let open_with_multiple_popover = popover.downgrade();
+    let open_with_multiple_selection = open_with_selection.clone();
+    open_with_multiple.connect_clicked(move |_| {
+        if let Some(popover) = open_with_multiple_popover.upgrade() {
+            popover.popdown();
+        }
+        let Some(state) = open_with_multiple_state.upgrade() else {
+            return;
+        };
+        let Some(selection) = open_with_multiple_selection.borrow().clone() else {
+            return;
+        };
+        if selection.entries_match_target(&context_entries(&state, &open_with_multiple_target)) {
+            let browser = Rc::downgrade(&state.browser);
+            crate::ui::open_with::show(
+                &state.overlay,
+                selection.files,
+                selection.apps,
+                Rc::new(move || {
+                    if let Some(browser) = browser.upgrade() {
+                        browser.focus_active();
+                    }
+                }),
+            );
         }
     });
     let weak = Rc::downgrade(state);
@@ -689,6 +807,25 @@ pub(in crate::ui) fn install_item_context_menu(
         }
         target.replace(Some((resolved_position, entry.clone())));
         let entries = context_entries(&state, &target);
+        let open_with_entries = entries.clone();
+        open_with.set_visible(open_with_entries.len() == 1 && !open_with_entries[0].is_directory());
+        open_with_multiple.set_visible(
+            open_with_entries.len() > 1
+                && open_with_entries.iter().all(|entry| !entry.is_directory()),
+        );
+        open_with.set_sensitive(false);
+        open_with_multiple.set_sensitive(false);
+        open_with_selection.replace(None);
+        let generation = open_with_generation.get().wrapping_add(1);
+        open_with_generation.set(generation);
+        prepare_open_with(
+            open_with_entries,
+            &open_with,
+            &open_with_multiple,
+            &open_with_selection,
+            &open_with_generation,
+            generation,
+        );
         let removable = entries
             .iter()
             .all(|entry| can_remove_location(&entry.location));
@@ -749,6 +886,7 @@ pub(in crate::ui) fn install_item_context_menu(
         let Some(anchor) = gesture.widget() else {
             return;
         };
+        focus_context_column(&state, depth);
         show_context_popover(&popover_for_reveal, &scroll_for_reveal, &anchor, x, y);
     });
     widget.add_controller(click);
@@ -922,6 +1060,116 @@ fn move_to_trash_is_visible(in_trash: bool, can_trash: Option<bool>) -> bool {
 /// when GIO confirms deletion is unsupported.
 fn permanently_delete_is_visible(in_trash: bool, can_delete: Option<bool>) -> bool {
     !in_trash && can_delete.unwrap_or(true)
+}
+
+#[derive(Clone)]
+struct OpenWithSelection {
+    locations: Vec<Location>,
+    files: Vec<gio::File>,
+    apps: Vec<gio::AppInfo>,
+}
+
+impl OpenWithSelection {
+    fn entries_match_target(&self, entries: &[FileEntry]) -> bool {
+        self.locations.len() == entries.len()
+            && self
+                .locations
+                .iter()
+                .zip(entries)
+                .all(|(location, entry)| locations_equal(location, &entry.location))
+    }
+}
+
+fn prepare_open_with(
+    entries: Vec<FileEntry>,
+    single_button: &gtk::Button,
+    multiple_button: &gtk::Button,
+    result: &Rc<RefCell<Option<OpenWithSelection>>>,
+    generation: &Rc<Cell<u64>>,
+    expected_generation: u64,
+) {
+    if entries.is_empty() || entries.iter().any(FileEntry::is_directory) {
+        return;
+    }
+    let locations = entries
+        .iter()
+        .map(|entry| entry.location.clone())
+        .collect::<Vec<_>>();
+    let files = entries
+        .iter()
+        .map(|entry| gio_file_for_location(&entry.location))
+        .collect::<Vec<_>>();
+    let single_button = single_button.clone();
+    let multiple_button = multiple_button.clone();
+    let result = result.clone();
+    let generation = generation.clone();
+    glib::MainContext::default().spawn_local(async move {
+        let mut content_type = None::<String>;
+        for file in &files {
+            if generation.get() != expected_generation {
+                return;
+            }
+            let Ok(info) = file
+                .query_info_future(
+                    "standard::type,standard::content-type",
+                    gio::FileQueryInfoFlags::NONE,
+                    glib::Priority::DEFAULT,
+                )
+                .await
+            else {
+                return;
+            };
+            if generation.get() != expected_generation {
+                return;
+            }
+            if info.file_type() == gio::FileType::Directory {
+                return;
+            }
+            let Some(next_type) = info.content_type().map(|value| value.to_string()) else {
+                return;
+            };
+            if let Some(current_type) = content_type.as_deref()
+                && !gio::content_type_equals(current_type, &next_type)
+            {
+                return;
+            }
+            content_type = Some(next_type);
+        }
+        let Some(content_type) = content_type else {
+            return;
+        };
+        if generation.get() != expected_generation {
+            return;
+        }
+        let default =
+            gio::AppInfo::default_for_type(&content_type, false).filter(|app| app.should_show());
+        let mut apps = gio::AppInfo::all_for_type(&content_type)
+            .into_iter()
+            .filter(|app| app.should_show())
+            .collect::<Vec<_>>();
+        apps.sort_by_cached_key(|app| app.display_name().to_lowercase());
+        let mut unique = Vec::with_capacity(apps.len());
+        for app in apps {
+            if !unique
+                .iter()
+                .any(|existing: &gio::AppInfo| existing.equal(&app))
+            {
+                unique.push(app);
+            }
+        }
+        let mut apps = unique;
+        if let Some(default) = default {
+            apps.retain(|app| !app.equal(&default));
+            apps.insert(0, default);
+        }
+        result.replace(Some(OpenWithSelection {
+            locations,
+            files,
+            apps,
+        }));
+        single_button.set_sensitive(true);
+        multiple_button.set_sensitive(true);
+    });
 }
 
 #[cfg(test)]
