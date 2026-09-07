@@ -3855,3 +3855,5 @@ fn a_move_reports_no_created_destination() -> Result<(), Box<dyn Error>> {
     assert!(created.into_iter().flatten().next().is_none());
     Ok(())
 }
+
+mod trash_capabilities;
