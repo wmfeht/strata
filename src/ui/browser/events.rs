@@ -382,6 +382,7 @@ impl ViewState {
                         column.presentation.stack.grab_focus();
                     }
                 }
+                self.sync_active_location();
             }
             BrowserEvent::PreviewRequested { .. } => {}
             BrowserEvent::OpenRequested { location } => {

@@ -669,7 +669,7 @@ pub(in crate::ui) fn install_item_context_menu(
             return;
         };
         gesture.set_state(gtk::EventSequenceState::Claimed);
-        state.browser.set_active_column(depth);
+        state.follow_column(depth);
         if !selection.is_selected(filtered_position) {
             clear_other_selections();
             selection.select_item(filtered_position, true);

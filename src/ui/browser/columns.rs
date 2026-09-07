@@ -953,7 +953,7 @@ impl ViewState {
         let weak = Rc::downgrade(self);
         focus.connect_enter(move |_| {
             if let Some(state) = weak.upgrade() {
-                state.browser.set_active_column(depth);
+                state.follow_column(depth);
                 state.refresh_destination_style();
             }
         });
@@ -973,7 +973,7 @@ impl ViewState {
                 return;
             }
             if let Some(state) = weak.upgrade() {
-                state.browser.set_active_column(depth);
+                state.follow_column(depth);
                 state.browser.focus_active();
             }
         });
