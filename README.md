@@ -157,7 +157,7 @@ On Arch Linux or Omarchy:
 
 ```bash
 sudo pacman -S --needed bubblewrap ffmpeg ffmpegthumbnailer fontconfig \
-  gst-libav gst-plugins-good gtk4 gtksourceview5 gvfs poppler-glib
+  gst-libav gst-plugins-good gtk4 gtksourceview5 gvfs libarchive libb2 poppler-glib
 # Optional SMB and broader camera RAW support:
 sudo pacman -S --needed gvfs-smb imagemagick libraw dcraw
 ```
@@ -375,7 +375,7 @@ Plain-text and source previews are different: they stay in process because they 
 | --- | --- |
 | Platform | 64-bit Linux with glibc 2.39+; designed for Omarchy and Wayland. GTK may use another backend supplied by the host, but Wayland is the primary display stack. |
 | Release architectures | `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu` |
-| UI and runtime | Rust 2024, GTK 4.12+, GIO/GLib, Cairo, GtkSourceView 5, Poppler GLib, GDK Pixbuf, GStreamer, and Fontconfig |
+| UI and runtime | Rust 2024, GTK 4.12+, GIO/GLib, Cairo, GtkSourceView 5, Poppler GLib, GDK Pixbuf, GStreamer, Fontconfig, and libarchive2 (vendored libarchive 3.8.1) |
 | Filesystems | Native Linux paths (including non-UTF-8 names) and GIO/GVfs locations; remote protocol availability depends on installed GVfs backends |
 | Preview boundary | Bubblewrap is mandatory for native parser-backed previews; helpers have no network and fail closed. Plain text is read in process with a 1 MiB cap. |
 | Optional preview tools | `ffmpegthumbnailer`/`ffmpeg` for video; ImageMagick, classic `dcraw`, and LibRaw `simple_dcraw` expand camera RAW support |
@@ -385,11 +385,11 @@ Plain-text and source previews are different: they stay in process because they 
 
 ## Development and documentation
 
-Build requirements are the latest stable Rust toolchain, a C toolchain, `pkg-config`, GTK 4.12+, GtkSourceView 5, Poppler GLib, and Fontconfig. On Arch:
+Build requirements are the latest stable Rust toolchain, a C toolchain, cmake, clang, `pkg-config`, GTK 4.12+, GtkSourceView 5, Poppler GLib, Fontconfig, and the compression libraries `libarchive2` links (zlib, bzip2, xz, zstd, lz4, libxml2, OpenSSL, ACL, libb2). On Arch, `libarchive`, `libb2`, `cmake`, and `clang` cover the archive stack:
 
 ```bash
-sudo pacman -S --needed base-devel rust bubblewrap ffmpeg ffmpegthumbnailer fontconfig \
-  gst-libav gst-plugins-good gtk4 gtksourceview5 gvfs poppler-glib
+sudo pacman -S --needed base-devel rust cmake clang bubblewrap ffmpeg ffmpegthumbnailer fontconfig \
+  gst-libav gst-plugins-good gtk4 gtksourceview5 gvfs libarchive libb2 poppler-glib
 make start-dev        # rebuild and restart as files change
 make run-dev          # build and launch the main app once
 make run-chooser-dev  # build and open an isolated Save chooser with choices

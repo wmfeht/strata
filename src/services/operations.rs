@@ -117,6 +117,14 @@ pub enum ArchiveFormat {
     SevenZ,
     TarGz,
     Tar,
+    TarXz,
+    TarZst,
+    TarBz2,
+    Gzip,
+    Xz,
+    Zstd,
+    Bzip2,
+    Rar,
 }
 
 impl ArchiveFormat {
@@ -126,23 +134,48 @@ impl ArchiveFormat {
             Self::SevenZ => "7z",
             Self::TarGz => "tar.gz",
             Self::Tar => "tar",
+            Self::TarXz => "tar.xz",
+            Self::TarZst => "tar.zst",
+            Self::TarBz2 => "tar.bz2",
+            Self::Gzip => "gz",
+            Self::Xz => "xz",
+            Self::Zstd => "zst",
+            Self::Bzip2 => "bz2",
+            Self::Rar => "rar",
         }
     }
 
     pub fn supports_password(self) -> bool {
-        matches!(self, Self::Zip | Self::SevenZ)
+        matches!(self, Self::Zip | Self::SevenZ | Self::Rar)
     }
 
     pub fn from_extension(name: &str) -> Option<Self> {
         let lower = name.to_ascii_lowercase();
         if lower.ends_with(".tar.gz") || lower.ends_with(".tgz") {
             Some(Self::TarGz)
+        } else if lower.ends_with(".tar.xz") || lower.ends_with(".txz") {
+            Some(Self::TarXz)
+        } else if lower.ends_with(".tar.zst") || lower.ends_with(".tzst") {
+            Some(Self::TarZst)
+        } else if lower.ends_with(".tar.bz2") || lower.ends_with(".tbz2") || lower.ends_with(".tbz")
+        {
+            Some(Self::TarBz2)
         } else if lower.ends_with(".tar") {
             Some(Self::Tar)
         } else if lower.ends_with(".zip") {
             Some(Self::Zip)
         } else if lower.ends_with(".7z") {
             Some(Self::SevenZ)
+        } else if lower.ends_with(".rar") {
+            Some(Self::Rar)
+        } else if lower.ends_with(".gz") {
+            Some(Self::Gzip)
+        } else if lower.ends_with(".xz") {
+            Some(Self::Xz)
+        } else if lower.ends_with(".zst") {
+            Some(Self::Zstd)
+        } else if lower.ends_with(".bz2") {
+            Some(Self::Bzip2)
         } else {
             None
         }

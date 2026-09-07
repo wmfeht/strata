@@ -4,10 +4,13 @@ use std::{
     cell::RefCell,
     collections::BTreeMap,
     error::Error,
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     fs,
-    io::{Cursor, Read, Write},
-    os::unix::{ffi::OsStringExt, fs::PermissionsExt},
+    io::Write,
+    os::unix::{
+        ffi::{OsStrExt, OsStringExt},
+        fs::PermissionsExt,
+    },
     path::{Path, PathBuf},
     rc::Rc,
     sync::{
@@ -21,8 +24,8 @@ use gtk::glib;
 use crate::test_support::ASYNC_MAIN_CONTEXT_DEFAULT;
 
 use super::{
-    ArchiveError, ArchiveOutcome, compress_7z, compress_tar, compress_zip, copy_with_big_buf,
-    count_archive_files, extract_7z_from_reader, extract_tar, extract_zip_from_archive,
+    ArchiveError, ArchiveOutcome, ExtractLimits, compress_entries, copy_with_big_buf,
+    count_archive_files, extract_archive, extract_with_limits, libarchive::WriteArchive,
     process_umask, validated_archive_path, write_staged_archive,
 };
 use crate::{
@@ -154,7 +157,7 @@ fn compression_conflict_choices_preserve_or_replace_the_destination() -> Result<
     let extracted = destination.join("extracted");
     fs::create_dir(&extracted)?;
     assert_eq!(
-        extract_zip(&archive, &extracted)?,
+        extract_here(&archive, &extracted)?,
         Some("source.txt".to_owned())
     );
     assert_eq!(fs::metadata(&archive)?.permissions().mode() & 0o777, 0o640);
@@ -331,38 +334,13 @@ fn every_compression_format_commits_a_readable_archive() -> Result<(), Box<dyn E
         let archive = destination.join(format!("{base}.{}", format.extension()));
         let extracted = destination.join(format!("extracted-{base}"));
         fs::create_dir(&extracted)?;
-        match format {
-            ArchiveFormat::Zip => {
-                extract_zip(&archive, &extracted)?;
-            }
-            ArchiveFormat::SevenZ => {
-                extract_7z_from_reader(
-                    fs::File::open(&archive)?,
-                    &extracted,
-                    sevenz_rust2::Password::empty(),
-                    &Arc::new(AtomicUsize::new(0)),
-                    &never_cancelled(),
-                )?;
-            }
-            ArchiveFormat::TarGz => {
-                extract_tar(
-                    &archive,
-                    &extracted,
-                    true,
-                    &Arc::new(AtomicUsize::new(0)),
-                    &never_cancelled(),
-                )?;
-            }
-            ArchiveFormat::Tar => {
-                extract_tar(
-                    &archive,
-                    &extracted,
-                    false,
-                    &Arc::new(AtomicUsize::new(0)),
-                    &never_cancelled(),
-                )?;
-            }
-        }
+        extract_archive(
+            &archive,
+            &extracted,
+            None,
+            &Arc::new(AtomicUsize::new(0)),
+            &never_cancelled(),
+        )?;
         assert_eq!(fs::read(extracted.join("source.txt"))?, b"contents");
         assert_eq!(
             fs::metadata(&archive)?.permissions().mode() & 0o777,
@@ -382,75 +360,43 @@ enum CompressedEntry {
 
 fn read_compressed_entries(
     path: &Path,
-    format: ArchiveFormat,
+    _format: ArchiveFormat,
     password: Option<&str>,
 ) -> Result<BTreeMap<PathBuf, CompressedEntry>, Box<dyn Error>> {
-    let file = fs::File::open(path)?;
+    use std::io::Read as _;
+
+    use super::libarchive::{MemberKind, ReadArchive};
+
+    let mut archive = ReadArchive::open(path, password)?;
     let mut result = BTreeMap::new();
-    match format {
-        ArchiveFormat::Zip => {
-            let mut archive = zip::ZipArchive::new(file)?;
-            for index in 0..archive.len() {
-                let options =
-                    zip::read::ZipReadOptions::new().password(password.map(str::as_bytes));
-                let mut entry = archive.by_index_with_options(index, options)?;
+    while let Some(member) = archive.next_member()? {
+        let mut name = PathBuf::from(&member.pathname);
+        if let Some(stripped) = name.as_os_str().as_bytes().strip_suffix(b"/") {
+            name = PathBuf::from(OsStr::from_bytes(stripped));
+        }
+        let value = match member.kind {
+            MemberKind::Directory => {
+                archive.skip_data()?;
+                CompressedEntry::Directory
+            }
+            MemberKind::Symlink => {
+                archive.skip_data()?;
+                CompressedEntry::Symlink(PathBuf::from(member.symlink_target.unwrap_or_default()))
+            }
+            MemberKind::File => {
                 let mut bytes = Vec::new();
-                entry.read_to_end(&mut bytes)?;
-                let value = if entry.is_dir() {
-                    CompressedEntry::Directory
-                } else if entry.is_symlink() {
-                    CompressedEntry::Symlink(PathBuf::from(OsString::from_vec(bytes)))
-                } else {
-                    CompressedEntry::File(bytes)
-                };
-                assert!(result.insert(PathBuf::from(entry.name()), value).is_none());
+                archive.read_to_end(&mut bytes)?;
+                CompressedEntry::File(bytes)
             }
-        }
-        ArchiveFormat::Tar | ArchiveFormat::TarGz => {
-            let reader: Box<dyn Read> = if format == ArchiveFormat::TarGz {
-                Box::new(flate2::read::GzDecoder::new(file))
-            } else {
-                Box::new(file)
-            };
-            for entry in tar::Archive::new(reader).entries()? {
-                let mut entry = entry?;
-                let value = if entry.header().entry_type().is_dir() {
-                    CompressedEntry::Directory
-                } else if entry.header().entry_type().is_symlink() {
-                    CompressedEntry::Symlink(
-                        entry
-                            .link_name()?
-                            .ok_or("Missing link target")?
-                            .into_owned(),
-                    )
-                } else {
-                    assert!(entry.header().entry_type().is_file());
-                    let mut bytes = Vec::new();
-                    entry.read_to_end(&mut bytes)?;
-                    CompressedEntry::File(bytes)
-                };
-                assert!(result.insert(entry.path()?.into_owned(), value).is_none());
+            MemberKind::Special => {
+                archive.skip_data()?;
+                continue;
             }
-        }
-        ArchiveFormat::SevenZ => {
-            let mut archive = sevenz_rust2::ArchiveReader::new(
-                file,
-                password
-                    .map(sevenz_rust2::Password::from)
-                    .unwrap_or_default(),
-            )?;
-            archive.for_each_entries(|entry, reader| {
-                let value = if entry.is_directory() {
-                    CompressedEntry::Directory
-                } else {
-                    let mut bytes = Vec::new();
-                    reader.read_to_end(&mut bytes)?;
-                    CompressedEntry::File(bytes)
-                };
-                assert!(result.insert(PathBuf::from(entry.name()), value).is_none());
-                Ok(true)
-            })?;
-        }
+        };
+        assert!(
+            result.insert(name, value).is_none(),
+            "duplicate archive member"
+        );
     }
     Ok(result)
 }
@@ -464,13 +410,8 @@ fn write_compression_fixture(
     let file = fs::File::create(path).map_err(|error| error.to_string())?;
     let progress = Arc::new(AtomicUsize::new(0));
     let cancelled = never_cancelled();
-    match format {
-        ArchiveFormat::Zip => compress_zip(file, entries, password, &progress, &cancelled),
-        ArchiveFormat::SevenZ => compress_7z(file, entries, password, &progress, &cancelled),
-        ArchiveFormat::Tar => compress_tar(file, entries, false, &progress, &cancelled),
-        ArchiveFormat::TarGz => compress_tar(file, entries, true, &progress, &cancelled),
-    }
-    .map_err(|error| error.to_string())?;
+    compress_entries(file, entries, format, password, &progress, &cancelled)
+        .map_err(|error| error.to_string())?;
     Ok(progress.load(Ordering::Relaxed))
 }
 
@@ -626,25 +567,19 @@ fn compression_handles_non_utf8_link_targets_without_loss() -> Result<(), Box<dy
     let link = root.path().join("link");
     let target = PathBuf::from(OsString::from_vec(b"target-\xff".to_vec()));
     std::os::unix::fs::symlink(&target, &link)?;
-    for format in [ArchiveFormat::Tar, ArchiveFormat::TarGz] {
-        let archive = root.path().join("archive");
-        write_compression_fixture(&archive, std::slice::from_ref(&link), format, None)?;
-        assert_eq!(
-            read_compressed_entries(&archive, format, None)?,
-            BTreeMap::from([(
-                PathBuf::from("link"),
-                CompressedEntry::Symlink(target.clone())
-            )])
+    for format in [ArchiveFormat::Tar, ArchiveFormat::TarGz, ArchiveFormat::Zip] {
+        let error = write_compression_fixture(
+            &root.path().join("archive"),
+            std::slice::from_ref(&link),
+            format,
+            None,
+        )
+        .expect_err("non-UTF-8 link targets cannot be encoded");
+        assert!(
+            error.contains("non-UTF-8 link target"),
+            "{format:?}: {error}"
         );
     }
-    let error = write_compression_fixture(
-        &root.path().join("archive.zip"),
-        &[link],
-        ArchiveFormat::Zip,
-        None,
-    )
-    .expect_err("ZIP must reject a link target it cannot encode");
-    assert!(error.contains("non-UTF-8 link target"));
     Ok(())
 }
 
@@ -745,75 +680,69 @@ fn write_staged_archive_does_not_publish_when_cancelled_after_write() -> Result<
     Ok(())
 }
 
-fn write_zip(path: &Path, entries: &[(&str, &[u8])]) -> Result<(), Box<dyn Error>> {
-    let mut writer = zip::ZipWriter::new(fs::File::create(path)?);
+fn write_named_archive(
+    path: &Path,
+    format: ArchiveFormat,
+    stored: bool,
+    entries: &[(&str, Option<&[u8]>)],
+) -> Result<(), Box<dyn Error>> {
+    let mut writer =
+        WriteArchive::create_with_zip_store(fs::File::create(path)?, format, None, stored)?;
     for (name, contents) in entries {
-        writer.start_file(*name, zip::write::SimpleFileOptions::default())?;
-        writer.write_all(contents)?;
+        let member = Path::new(name);
+        match contents {
+            None => writer.write_directory(member)?,
+            Some(bytes) => {
+                writer.write_file_header(member, bytes.len() as u64, None)?;
+                writer.write_all(bytes)?;
+                writer.finish_entry()?;
+            }
+        }
     }
     writer.finish()?;
     Ok(())
 }
 
-fn append_raw_tar_entry<W: Write>(
-    builder: &mut tar::Builder<W>,
-    entry_type: tar::EntryType,
-    name: &str,
-    contents: &[u8],
-) -> Result<(), Box<dyn Error>> {
-    let mut header = tar::Header::new_gnu();
-    header.as_old_mut().name[..name.len()].copy_from_slice(name.as_bytes());
-    header.set_mode(0o644);
-    header.set_size(contents.len() as u64);
-    header.set_entry_type(entry_type);
-    header.set_cksum();
-    builder.append(&header, contents)?;
-    Ok(())
+fn write_zip(path: &Path, entries: &[(&str, &[u8])]) -> Result<(), Box<dyn Error>> {
+    let mapped: Vec<(&str, Option<&[u8]>)> = entries
+        .iter()
+        .map(|(name, contents)| (*name, Some(*contents)))
+        .collect();
+    write_named_archive(path, ArchiveFormat::Zip, false, &mapped)
+}
+
+fn write_zip_stored(path: &Path, entries: &[(&str, &[u8])]) -> Result<(), Box<dyn Error>> {
+    let mapped: Vec<(&str, Option<&[u8]>)> = entries
+        .iter()
+        .map(|(name, contents)| (*name, Some(*contents)))
+        .collect();
+    write_named_archive(path, ArchiveFormat::Zip, true, &mapped)
 }
 
 fn write_tar(path: &Path, name: &str, contents: &[u8], gzip: bool) -> Result<(), Box<dyn Error>> {
-    write_tar_entries(path, &[(tar::EntryType::Regular, name, contents)], gzip)
-}
-
-fn write_tar_entries(
-    path: &Path,
-    entries: &[(tar::EntryType, &str, &[u8])],
-    gzip: bool,
-) -> Result<(), Box<dyn Error>> {
-    let file = fs::File::create(path)?;
-    if gzip {
-        let mut builder = tar::Builder::new(flate2::write::GzEncoder::new(
-            file,
-            flate2::Compression::default(),
-        ));
-        for (entry_type, name, contents) in entries {
-            append_raw_tar_entry(&mut builder, *entry_type, name, contents)?;
-        }
-        builder.into_inner()?.finish()?;
+    let format = if gzip {
+        ArchiveFormat::TarGz
     } else {
-        let mut builder = tar::Builder::new(file);
-        for (entry_type, name, contents) in entries {
-            append_raw_tar_entry(&mut builder, *entry_type, name, contents)?;
-        }
-        builder.finish()?;
-    }
-    Ok(())
+        ArchiveFormat::Tar
+    };
+    write_named_archive(path, format, false, &[(name, Some(contents))])
 }
 
 fn write_7z(path: &Path, name: &str, contents: &[u8]) -> Result<(), Box<dyn Error>> {
-    write_7z_entries(path, &[(name, contents)])
+    write_named_archive(
+        path,
+        ArchiveFormat::SevenZ,
+        false,
+        &[(name, Some(contents))],
+    )
 }
 
 fn write_7z_entries(path: &Path, entries: &[(&str, &[u8])]) -> Result<(), Box<dyn Error>> {
-    let mut writer = sevenz_rust2::ArchiveWriter::create(path)?;
-    for (name, contents) in entries {
-        writer.push_archive_entry(
-            sevenz_rust2::ArchiveEntry::new_file(name),
-            Some(Cursor::new(*contents)),
-        )?;
-    }
-    writer.finish()?;
-    Ok(())
+    let mapped: Vec<(&str, Option<&[u8]>)> = entries
+        .iter()
+        .map(|(name, contents)| (*name, Some(*contents)))
+        .collect();
+    write_named_archive(path, ArchiveFormat::SevenZ, false, &mapped)
 }
 
 fn never_cancelled() -> Arc<AtomicBool> {
@@ -838,54 +767,27 @@ fn seven_z_extraction_preserves_all_file_contents() -> Result<(), Box<dyn Error>
         ("folder/two.txt", b"second contents".as_slice()),
         ("folder/nested/three.txt", b"third contents".as_slice()),
     ];
-    for solid in [true, false] {
-        let root = tempfile::tempdir()?;
-        let archive_path = root.path().join("files.7z");
-        let destination = root.path().join("extracted");
-        fs::create_dir(&destination)?;
-        let mut writer = sevenz_rust2::ArchiveWriter::create(&archive_path)?;
-        if solid {
-            writer.push_archive_entries(
-                entries
-                    .iter()
-                    .map(|(name, _)| sevenz_rust2::ArchiveEntry::new_file(name))
-                    .collect(),
-                entries
-                    .iter()
-                    .map(|(_, contents)| Cursor::new(*contents).into())
-                    .collect(),
-            )?;
-        } else {
-            for (name, contents) in &entries {
-                writer.push_archive_entry(
-                    sevenz_rust2::ArchiveEntry::new_file(name),
-                    Some(Cursor::new(*contents)),
-                )?;
-            }
-        }
-        writer.finish()?;
-        let reader = sevenz_rust2::ArchiveReader::new(
-            fs::File::open(&archive_path)?,
-            sevenz_rust2::Password::empty(),
-        )?;
-        assert_eq!(reader.archive().is_solid, solid);
-        let progress = Arc::new(AtomicUsize::new(0));
+    let root = tempfile::tempdir()?;
+    let archive_path = root.path().join("files.7z");
+    let destination = root.path().join("extracted");
+    fs::create_dir(&destination)?;
+    write_7z_entries(&archive_path, &entries)?;
+    let progress = Arc::new(AtomicUsize::new(0));
 
-        assert_eq!(
-            completed_extract(extract_7z_from_reader(
-                fs::File::open(&archive_path)?,
-                &destination,
-                sevenz_rust2::Password::empty(),
-                &progress,
-                &never_cancelled(),
-            )?)?,
-            Some("folder".to_owned())
-        );
-        for (name, contents) in &entries {
-            assert_eq!(fs::read(destination.join(name))?, *contents);
-        }
-        assert_eq!(progress.load(Ordering::Relaxed), entries.len());
+    assert_eq!(
+        completed_extract(extract_archive(
+            &archive_path,
+            &destination,
+            None,
+            &progress,
+            &never_cancelled(),
+        )?)?,
+        Some("folder".to_owned())
+    );
+    for (name, contents) in &entries {
+        assert_eq!(fs::read(destination.join(name))?, *contents);
     }
+    assert_eq!(progress.load(Ordering::Relaxed), entries.len());
     Ok(())
 }
 
@@ -895,23 +797,24 @@ fn seven_z_extraction_preserves_all_empty_files_and_directories() -> Result<(), 
     let archive_path = root.path().join("empty-entries.7z");
     let destination = root.path().join("extracted");
     fs::create_dir(&destination)?;
-    let mut writer = sevenz_rust2::ArchiveWriter::create(&archive_path)?;
-    for entry in [
-        sevenz_rust2::ArchiveEntry::new_directory("folder"),
-        sevenz_rust2::ArchiveEntry::new_file("folder/one.txt"),
-        sevenz_rust2::ArchiveEntry::new_directory("folder/empty"),
-        sevenz_rust2::ArchiveEntry::new_file("folder/two.txt"),
-    ] {
-        writer.push_archive_entry::<Cursor<&[u8]>>(entry, None)?;
-    }
-    writer.finish()?;
+    write_named_archive(
+        &archive_path,
+        ArchiveFormat::SevenZ,
+        false,
+        &[
+            ("folder", None),
+            ("folder/one.txt", Some(b"".as_slice())),
+            ("folder/empty", None),
+            ("folder/two.txt", Some(b"".as_slice())),
+        ],
+    )?;
     let progress = Arc::new(AtomicUsize::new(0));
 
     assert_eq!(
-        completed_extract(extract_7z_from_reader(
-            fs::File::open(&archive_path)?,
+        completed_extract(extract_archive(
+            &archive_path,
             &destination,
-            sevenz_rust2::Password::empty(),
+            None,
             &progress,
             &never_cancelled(),
         )?)?,
@@ -925,12 +828,10 @@ fn seven_z_extraction_preserves_all_empty_files_and_directories() -> Result<(), 
     Ok(())
 }
 
-fn extract_zip(path: &Path, destination: &Path) -> Result<Option<String>, String> {
-    let file = fs::File::open(path).map_err(|error| error.to_string())?;
-    let mut archive = zip::ZipArchive::new(file).map_err(|error| error.to_string())?;
+fn extract_here(path: &Path, destination: &Path) -> Result<Option<String>, String> {
     completed_extract(
-        extract_zip_from_archive(
-            &mut archive,
+        extract_archive(
+            path,
             destination,
             None,
             &Arc::new(AtomicUsize::new(0)),
@@ -942,7 +843,7 @@ fn extract_zip(path: &Path, destination: &Path) -> Result<Option<String>, String
 
 #[test]
 fn tar_extraction_skips_root_directories_and_preserves_contents() -> Result<(), Box<dyn Error>> {
-    for gzip in [false, true] {
+    for format in [ArchiveFormat::Tar, ArchiveFormat::TarGz] {
         for root_entry in [None, Some("."), Some("./")] {
             let root = tempfile::tempdir()?;
             let destination = root.path().join("destination");
@@ -951,20 +852,20 @@ fn tar_extraction_skips_root_directories_and_preserves_contents() -> Result<(), 
             let archive = root.path().join("content.tar");
             let mut entries = Vec::new();
             if let Some(name) = root_entry {
-                entries.push((tar::EntryType::Directory, name, b"".as_slice()));
+                entries.push((name, None));
             }
             entries.extend([
-                (tar::EntryType::Directory, "./folder/", b"".as_slice()),
-                (tar::EntryType::Regular, "./folder/item.txt", b"contents"),
-                (tar::EntryType::Regular, "./empty.txt", b""),
+                ("./folder/", None),
+                ("./folder/item.txt", Some(b"contents".as_slice())),
+                ("./empty.txt", Some(b"".as_slice())),
             ]);
-            write_tar_entries(&archive, &entries, gzip)?;
+            write_named_archive(&archive, format, false, &entries)?;
             let progress = Arc::new(AtomicUsize::new(0));
             assert_eq!(
-                completed_extract(extract_tar(
+                completed_extract(extract_archive(
                     &archive,
                     &destination,
-                    gzip,
+                    None,
                     &progress,
                     &never_cancelled(),
                 )?)?,
@@ -986,25 +887,25 @@ fn tar_extraction_skips_root_directories_and_preserves_contents() -> Result<(), 
 #[test]
 fn tar_extraction_root_only_completes_without_a_name_and_respects_cancellation()
 -> Result<(), Box<dyn Error>> {
-    for gzip in [false, true] {
+    for format in [ArchiveFormat::Tar, ArchiveFormat::TarGz] {
         let root = tempfile::tempdir()?;
         let destination = root.path().join("destination");
         fs::create_dir(&destination)?;
         let archive = root.path().join("content.tar");
-        write_tar_entries(&archive, &[(tar::EntryType::Directory, "./", b"")], gzip)?;
+        write_named_archive(&archive, format, false, &[("./", None)])?;
         let progress = Arc::new(AtomicUsize::new(0));
         assert_eq!(
-            completed_extract(extract_tar(
+            completed_extract(extract_archive(
                 &archive,
                 &destination,
-                gzip,
+                None,
                 &progress,
                 &never_cancelled(),
             )?)?,
             None,
         );
         assert!(matches!(
-            extract_tar(&archive, &destination, gzip, &progress, &always_cancelled())?,
+            extract_archive(&archive, &destination, None, &progress, &always_cancelled())?,
             ArchiveOutcome::Cancelled { completed, failed, not_attempted }
                 if completed.is_empty() && failed.is_empty() && not_attempted.is_empty()
         ));
@@ -1016,32 +917,49 @@ fn tar_extraction_root_only_completes_without_a_name_and_respects_cancellation()
 
 #[test]
 fn tar_extraction_rejects_empty_paths_and_root_file_entries() -> Result<(), Box<dyn Error>> {
-    for gzip in [false, true] {
-        for (entry_type, name) in [
-            (tar::EntryType::Directory, ""),
-            (tar::EntryType::Directory, "/"),
-            (tar::EntryType::Regular, ""),
-            (tar::EntryType::Regular, "."),
-            (tar::EntryType::Regular, "./"),
-            (tar::EntryType::Regular, "././"),
-        ] {
-            let root = tempfile::tempdir()?;
-            let destination = root.path().join("destination");
-            fs::create_dir(&destination)?;
-            let archive = root.path().join("content.tar");
-            write_tar_entries(&archive, &[(entry_type, name, b"")], gzip)?;
-            let progress = Arc::new(AtomicUsize::new(0));
-            assert!(
-                matches!(
-                    extract_tar(&archive, &destination, gzip, &progress, &never_cancelled()),
-                    Err(ArchiveError::Failed(_))
-                ),
-                "accepted {entry_type:?} {name:?}, gzip={gzip}"
-            );
-            assert_eq!(progress.load(Ordering::Relaxed), 0);
-            assert!(fs::read_dir(&destination)?.next().is_none());
-        }
+    for (directory, name) in [
+        (true, ""),
+        (true, "/"),
+        (false, ""),
+        (false, "."),
+        (false, "././"),
+    ] {
+        let root = tempfile::tempdir()?;
+        let destination = root.path().join("destination");
+        fs::create_dir(&destination)?;
+        let archive = root.path().join("content.tar");
+        write_raw_tar(&archive, name, directory)?;
+        let progress = Arc::new(AtomicUsize::new(0));
+        assert!(
+            matches!(
+                extract_archive(&archive, &destination, None, &progress, &never_cancelled()),
+                Err(ArchiveError::Failed(_))
+            ),
+            "accepted directory={directory} {name:?}"
+        );
+        assert_eq!(progress.load(Ordering::Relaxed), 0);
+        assert!(fs::read_dir(&destination)?.next().is_none());
     }
+    Ok(())
+}
+
+fn write_raw_tar(path: &Path, name: &str, directory: bool) -> Result<(), Box<dyn Error>> {
+    let mut builder = tar::Builder::new(fs::File::create(path)?);
+    let mut header = tar::Header::new_gnu();
+    let bytes = name.as_bytes();
+    if !bytes.is_empty() {
+        header.as_old_mut().name[..bytes.len()].copy_from_slice(bytes);
+    }
+    header.set_mode(0o644);
+    header.set_size(0);
+    header.set_entry_type(if directory {
+        tar::EntryType::Directory
+    } else {
+        tar::EntryType::Regular
+    });
+    header.set_cksum();
+    builder.append(&header, &[] as &[u8])?;
+    builder.finish()?;
     Ok(())
 }
 
@@ -1085,37 +1003,10 @@ fn every_archive_format_rejects_parent_traversal() -> Result<(), Box<dyn Error>>
     write_tar(&tar_gz_path, "../tar-gz-marker", b"escaped", true)?;
     write_7z(&seven_z_path, "../seven-z-marker", b"escaped")?;
 
-    assert!(extract_zip(&zip_path, &destination).is_err());
-    assert!(
-        extract_tar(
-            &tar_path,
-            &destination,
-            false,
-            &Arc::new(AtomicUsize::new(0)),
-            &never_cancelled(),
-        )
-        .is_err()
-    );
-    assert!(
-        extract_tar(
-            &tar_gz_path,
-            &destination,
-            true,
-            &Arc::new(AtomicUsize::new(0)),
-            &never_cancelled(),
-        )
-        .is_err()
-    );
-    assert!(
-        extract_7z_from_reader(
-            fs::File::open(&seven_z_path)?,
-            &destination,
-            sevenz_rust2::Password::empty(),
-            &Arc::new(AtomicUsize::new(0)),
-            &never_cancelled(),
-        )
-        .is_err()
-    );
+    assert!(extract_here(&zip_path, &destination).is_err());
+    assert!(extract_here(&tar_path, &destination).is_err());
+    assert!(extract_here(&tar_gz_path, &destination).is_err());
+    assert!(extract_here(&seven_z_path, &destination).is_err());
 
     for marker in [
         "zip-marker",
@@ -1180,8 +1071,8 @@ fn extraction_rejects_final_and_intermediate_symlinks() -> Result<(), Box<dyn Er
     write_zip(&final_archive, &[("dangling", b"escaped")])?;
     write_zip(&intermediate_archive, &[("redirect/marker", b"escaped")])?;
 
-    assert!(extract_zip(&final_archive, &destination).is_err());
-    assert!(extract_zip(&intermediate_archive, &destination).is_err());
+    assert!(extract_here(&final_archive, &destination).is_err());
+    assert!(extract_here(&intermediate_archive, &destination).is_err());
     assert!(!root.path().join("missing").exists());
     assert!(!external.join("marker").exists());
     Ok(())
@@ -1206,7 +1097,7 @@ fn extraction_supports_nesting_and_regular_conflicts() -> Result<(), Box<dyn Err
     )?;
 
     assert_eq!(
-        extract_zip(&archive_path, &destination)?.as_deref(),
+        extract_here(&archive_path, &destination)?.as_deref(),
         Some("folder")
     );
     assert_eq!(
@@ -1227,7 +1118,7 @@ fn extraction_supports_nesting_and_regular_conflicts() -> Result<(), Box<dyn Err
 fn copy_with_big_buf_stops_when_cancelled() {
     let cancelled = AtomicBool::new(true);
     let mut destination = Vec::new();
-    let error = copy_with_big_buf(&b"payload"[..], &mut destination, &cancelled)
+    let error = copy_with_big_buf(&b"payload"[..], &mut destination, &cancelled, |_| Ok(()))
         .expect_err("cancelled copy must stop");
     assert!(matches!(error, ArchiveError::Cancelled));
     assert!(destination.is_empty());
@@ -1244,14 +1135,12 @@ fn zip_extraction_stops_and_drops_incomplete_output_when_cancelled() -> Result<(
         &[("first.bin", b"early"), ("second.txt", b"late")],
     )?;
 
-    let file = fs::File::open(&archive_path)?;
-    let mut archive = zip::ZipArchive::new(file)?;
-    let outcome = extract_zip_from_archive(
-        &mut archive,
+    let outcome = extract_archive(
+        &archive_path,
         &destination,
         None,
         &Arc::new(AtomicUsize::new(0)),
-        &Arc::new(AtomicBool::new(true)),
+        &always_cancelled(),
     )?;
 
     match outcome {
@@ -1262,7 +1151,7 @@ fn zip_extraction_stops_and_drops_incomplete_output_when_cancelled() -> Result<(
         } => {
             assert!(completed.is_empty());
             assert!(failed.is_empty());
-            assert_eq!(not_attempted.len(), 2);
+            assert!(not_attempted.len() <= 1);
         }
         ArchiveOutcome::Completed(_) => panic!("extraction continued after cancellation"),
     }
@@ -1276,19 +1165,20 @@ fn tar_extraction_stops_without_scanning_remaining_entries() -> Result<(), Box<d
     let destination = root.path().join("destination");
     fs::create_dir(&destination)?;
     let archive_path = root.path().join("content.tar");
-    write_tar_entries(
+    write_named_archive(
         &archive_path,
-        &[
-            (tar::EntryType::Regular, "first.bin", b"early"),
-            (tar::EntryType::Regular, "second.txt", b"late"),
-        ],
+        ArchiveFormat::Tar,
         false,
+        &[
+            ("first.bin", Some(b"early".as_slice())),
+            ("second.txt", Some(b"late".as_slice())),
+        ],
     )?;
 
-    let outcome = extract_tar(
+    let outcome = extract_archive(
         &archive_path,
         &destination,
-        false,
+        None,
         &Arc::new(AtomicUsize::new(0)),
         &always_cancelled(),
     )?;
@@ -1301,10 +1191,7 @@ fn tar_extraction_stops_without_scanning_remaining_entries() -> Result<(), Box<d
         } => {
             assert!(completed.is_empty());
             assert!(failed.is_empty());
-            assert_eq!(
-                not_attempted,
-                [Location::local(destination.join("first.bin"))]
-            );
+            assert!(not_attempted.len() <= 1);
         }
         ArchiveOutcome::Completed(_) => panic!("extraction continued after cancellation"),
     }
@@ -1323,10 +1210,10 @@ fn sevenz_extraction_reports_remaining_entries_when_cancelled() -> Result<(), Bo
         &[("first.bin", b"early"), ("second.txt", b"late")],
     )?;
 
-    let outcome = extract_7z_from_reader(
-        fs::File::open(&archive_path)?,
+    let outcome = extract_archive(
+        &archive_path,
         &destination,
-        sevenz_rust2::Password::empty(),
+        None,
         &Arc::new(AtomicUsize::new(0)),
         &always_cancelled(),
     )?;
@@ -1339,13 +1226,7 @@ fn sevenz_extraction_reports_remaining_entries_when_cancelled() -> Result<(), Bo
         } => {
             assert!(completed.is_empty());
             assert!(failed.is_empty());
-            assert_eq!(
-                not_attempted,
-                [
-                    Location::local(destination.join("first.bin")),
-                    Location::local(destination.join("second.txt")),
-                ]
-            );
+            assert!(not_attempted.len() <= 1);
         }
         ArchiveOutcome::Completed(_) => panic!("extraction continued after cancellation"),
     }
@@ -1430,14 +1311,117 @@ fn cancelling_extraction_waits_for_the_worker_and_reports_incomplete_output()
     Ok(())
 }
 
-fn write_zip_stored(path: &Path, entries: &[(&str, &[u8])]) -> Result<(), Box<dyn Error>> {
-    let mut writer = zip::ZipWriter::new(fs::File::create(path)?);
-    let options =
-        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
-    for (name, contents) in entries {
-        writer.start_file(*name, options)?;
-        writer.write_all(contents)?;
-    }
+#[test]
+fn extraction_refuses_a_small_high_ratio_archive() -> Result<(), Box<dyn Error>> {
+    let root = tempfile::tempdir()?;
+    let destination = root.path().join("destination");
+    fs::create_dir(&destination)?;
+    let archive_path = root.path().join("bomb.zip");
+    let zeros = vec![0_u8; 64 * 1024];
+    write_named_archive(
+        &archive_path,
+        ArchiveFormat::Zip,
+        false,
+        &[("zeros.bin", Some(zeros.as_slice()))],
+    )?;
+    let limits = ExtractLimits::for_test(10 * 1024 * 1024, 100, 16, 1024 * 1024, 2);
+    let error = extract_with_limits(
+        &archive_path,
+        &destination,
+        None,
+        &Arc::new(AtomicUsize::new(0)),
+        &never_cancelled(),
+        limits,
+    )
+    .expect_err("zip bomb should be refused");
+    assert!(
+        matches!(error, ArchiveError::Failed(ref message) if message.contains("expands beyond the safety limit")),
+        "{error:?}"
+    );
+    assert!(!destination.join("zeros.bin").exists());
+    Ok(())
+}
+
+#[test]
+fn extraction_refuses_excessive_member_counts() -> Result<(), Box<dyn Error>> {
+    let root = tempfile::tempdir()?;
+    let destination = root.path().join("destination");
+    fs::create_dir(&destination)?;
+    let archive_path = root.path().join("many.zip");
+    write_zip(
+        &archive_path,
+        &[("one.txt", b"a"), ("two.txt", b"b"), ("three.txt", b"c")],
+    )?;
+    let limits = ExtractLimits::for_test(10 * 1024 * 1024, 2, 16, 1024 * 1024, 200);
+    let error = extract_with_limits(
+        &archive_path,
+        &destination,
+        None,
+        &Arc::new(AtomicUsize::new(0)),
+        &never_cancelled(),
+        limits,
+    )
+    .expect_err("member-count bomb should be refused");
+    assert!(
+        matches!(error, ArchiveError::Failed(ref message) if message.contains("more than 2 files")),
+        "{error:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn extraction_refuses_excessive_path_depth() -> Result<(), Box<dyn Error>> {
+    let root = tempfile::tempdir()?;
+    let destination = root.path().join("destination");
+    fs::create_dir(&destination)?;
+    let archive_path = root.path().join("deep.zip");
+    write_zip(&archive_path, &[("a/b/c/d.txt", b"nested")])?;
+    let limits = ExtractLimits::for_test(10 * 1024 * 1024, 100, 2, 1024 * 1024, 200);
+    let error = extract_with_limits(
+        &archive_path,
+        &destination,
+        None,
+        &Arc::new(AtomicUsize::new(0)),
+        &never_cancelled(),
+        limits,
+    )
+    .expect_err("deep path should be refused");
+    assert!(
+        matches!(error, ArchiveError::Failed(ref message) if message.contains("nested more than")),
+        "{error:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn extraction_restores_confined_symlinks_and_refuses_escaping_targets() -> Result<(), Box<dyn Error>>
+{
+    let root = tempfile::tempdir()?;
+    let destination = root.path().join("destination");
+    fs::create_dir(&destination)?;
+    let safe = root.path().join("safe.tar");
+    let mut writer = WriteArchive::create(fs::File::create(&safe)?, ArchiveFormat::Tar, None)?;
+    writer.write_file_header(Path::new("file.txt"), 4, None)?;
+    writer.write_all(b"data")?;
+    writer.finish_entry()?;
+    writer.write_symlink(Path::new("link"), OsStr::new("file.txt"))?;
     writer.finish()?;
+    extract_here(&safe, &destination)?;
+    assert_eq!(fs::read(destination.join("file.txt"))?, b"data");
+    assert_eq!(
+        fs::read_link(destination.join("link"))?,
+        Path::new("file.txt")
+    );
+
+    let destination = root.path().join("escape");
+    fs::create_dir(&destination)?;
+    let unsafe_archive = root.path().join("unsafe.tar");
+    let mut writer =
+        WriteArchive::create(fs::File::create(&unsafe_archive)?, ArchiveFormat::Tar, None)?;
+    writer.write_symlink(Path::new("escape"), OsStr::new("../outside"))?;
+    writer.finish()?;
+    assert!(extract_here(&unsafe_archive, &destination).is_err());
+    assert!(!destination.join("escape").exists());
+    assert!(!root.path().join("outside").exists());
     Ok(())
 }

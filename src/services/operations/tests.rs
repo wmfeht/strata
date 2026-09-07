@@ -48,13 +48,46 @@ fn archive_formats_are_detected_by_extension() {
         ArchiveFormat::from_extension("data.tar"),
         Some(ArchiveFormat::Tar)
     );
+    assert_eq!(
+        ArchiveFormat::from_extension("backup.tar.xz"),
+        Some(ArchiveFormat::TarXz)
+    );
+    assert_eq!(
+        ArchiveFormat::from_extension("backup.tzst"),
+        Some(ArchiveFormat::TarZst)
+    );
+    assert_eq!(
+        ArchiveFormat::from_extension("backup.tbz2"),
+        Some(ArchiveFormat::TarBz2)
+    );
+    assert_eq!(
+        ArchiveFormat::from_extension("notes.gz"),
+        Some(ArchiveFormat::Gzip)
+    );
+    assert_eq!(
+        ArchiveFormat::from_extension("payload.rar"),
+        Some(ArchiveFormat::Rar)
+    );
     assert_eq!(ArchiveFormat::from_extension("document.pdf"), None);
     assert_eq!(ArchiveFormat::from_extension("no_extension"), None);
 }
 
 #[test]
 fn archive_format_extensions_round_trip() {
-    for format in [ArchiveFormat::Zip, ArchiveFormat::TarGz, ArchiveFormat::Tar] {
+    for format in [
+        ArchiveFormat::Zip,
+        ArchiveFormat::SevenZ,
+        ArchiveFormat::TarGz,
+        ArchiveFormat::Tar,
+        ArchiveFormat::TarXz,
+        ArchiveFormat::TarZst,
+        ArchiveFormat::TarBz2,
+        ArchiveFormat::Gzip,
+        ArchiveFormat::Xz,
+        ArchiveFormat::Zstd,
+        ArchiveFormat::Bzip2,
+        ArchiveFormat::Rar,
+    ] {
         let name = format!("test.{}", format.extension());
         assert_eq!(ArchiveFormat::from_extension(&name), Some(format));
     }
