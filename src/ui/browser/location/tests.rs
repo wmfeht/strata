@@ -223,8 +223,11 @@ fn columns_address_bar_follows_the_focused_miller_column() {
                 PeekBehavior::default(),
             );
             view.set_view_mode(BrowserMode::Columns);
+            let layout = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            layout.append(&view.location_widget());
+            layout.append(&view.widget());
             let window = gtk::Window::builder()
-                .child(&view.widget())
+                .child(&layout)
                 .default_width(1000)
                 .default_height(500)
                 .build();
@@ -297,6 +300,25 @@ fn columns_address_bar_follows_the_focused_miller_column() {
                 beta_location.display_path()
             );
             assert_eq!(current_breadcrumb_label(&view.state.breadcrumbs), "beta");
+
+            view.state.begin_location_edit();
+            view.state.location_entry.set_text("/unfinished/path");
+            browser.focus_parent();
+            assert_eq!(
+                view.state.location_entry.text().as_str(),
+                "/unfinished/path"
+            );
+            assert_eq!(
+                view.state.location_stack.visible_child_name().as_deref(),
+                Some("entry")
+            );
+            view.state.cancel_location_edit();
+            assert_eq!(
+                view.state.location_entry.text().as_str(),
+                alpha_location.display_path()
+            );
+            assert_eq!(current_breadcrumb_label(&view.state.breadcrumbs), "alpha");
+            assert!(browser.column_snapshot(2).is_some());
 
             browser.clear_observer();
             window.destroy();
