@@ -152,20 +152,21 @@ pub(super) struct WriteArchive {
 impl WriteArchive {
     /// Prepares a writer for `format` on `file`.
     ///
-    /// ZIP and 7z honor `password` through libarchive's passphrase. TAR formats
-    /// reject a password. ZIP always uses deflate; libarchive cannot change ZIP
-    /// compression after the first header.
+    /// Passwords are rejected: libarchive cannot write encrypted archives.
+    /// ZIP always uses deflate; libarchive cannot change ZIP compression after
+    /// the first header.
     ///
     /// # Errors
     ///
     /// Returns an error if the writer cannot be allocated, the format is not
-    /// creatable, an option is rejected, or the file descriptor cannot be used.
+    /// creatable, an option is rejected, a password is supplied, or the file
+    /// descriptor cannot be used.
     pub(super) fn create(
         file: File,
         format: ArchiveFormat,
         password: Option<&str>,
     ) -> Result<Self, String> {
-        if password.is_some() && !format.supports_password() {
+        if password.is_some() {
             return Err("This format does not support passwords".to_owned());
         }
         let mut builder = LibWriteArchive::new();
@@ -182,9 +183,6 @@ impl WriteArchive {
                     .format(LibFormat::TarPaxRestricted)
                     .compression(CompressionFormat::None),
             };
-        if let Some(password) = password {
-            builder = builder.passphrase(password);
-        }
         let inner = builder.open_fd(file.as_raw_fd()).map_err(crate_error)?;
         Ok(Self {
             inner: Some(inner),

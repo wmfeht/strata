@@ -30,12 +30,11 @@ def compress_as(strata, entry_name, archive_name, format_label):
         assert option.activate(), (
             f"{format_label} should expose an accessible action"
         )
-        if format_label in {"TAR", "TAR.GZ"}:
-            strata.wait(
-                lambda: dialog.find(role="toggle button", name="No password")
-                is None,
-                "password options to hide for formats without protection",
-            )
+    strata.wait(
+        lambda: dialog.find(role="toggle button", name="No password")
+        is None,
+        "password options to stay hidden: libarchive cannot write encrypted archives",
+    )
     field = strata.wait(
         lambda: dialog.find(role="text", states={"editable"}),
         "the archive name field",

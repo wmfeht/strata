@@ -138,10 +138,6 @@ impl ArchiveFormat {
         format!("{stem}.{}", self.extension())
     }
 
-    pub fn supports_password(self) -> bool {
-        matches!(self, Self::Zip | Self::SevenZ)
-    }
-
     pub fn from_extension(name: &str) -> Option<Self> {
         let lower = name.to_ascii_lowercase();
         if lower.ends_with(".tar.gz") || lower.ends_with(".tgz") {

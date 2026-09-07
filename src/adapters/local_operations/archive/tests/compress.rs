@@ -16,7 +16,7 @@ use gtk::glib;
 
 use super::{
     ArchiveAction, ArchiveError, ArchiveFormat, ArchiveRequest, OperationEvent, OperationRequestId,
-    TransferConflict, compress_request, compression_stages, extract_here, extract_with_password,
+    TransferConflict, WriteArchive, compress_request, compression_stages, extract_here,
     lock_main_context, never_cancelled, process_umask, run_archive, run_compression, write_fixture,
     write_staged_archive,
 };
@@ -57,30 +57,19 @@ fn formats_round_trip() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// ZIP and 7z round-trip through a password.
+/// Compression rejects a password because libarchive cannot write encrypted archives.
 #[test]
-fn password_round_trip() -> Result<(), Box<dyn Error>> {
+fn compress_password() -> Result<(), Box<dyn Error>> {
     let root = tempfile::tempdir()?;
-    let source = root.path().join("secret.txt");
-    fs::write(&source, b"secret")?;
-    let extracted = root.path().join("extracted");
-
-    for format in [ArchiveFormat::Zip, ArchiveFormat::SevenZ] {
-        let archive = root.path().join("archive");
-        write_fixture(
-            &archive,
-            std::slice::from_ref(&source),
-            format,
-            Some("pass"),
-        )?;
-        let _ = fs::remove_dir_all(&extracted);
-        fs::create_dir(&extracted)?;
-        extract_with_password(&archive, &extracted, Some("pass"))?;
-        assert_eq!(
-            fs::read(extracted.join("secret.txt"))?,
-            b"secret",
-            "{format:?} should extract with the password"
-        );
+    for format in CREATABLE_FORMATS {
+        let file = fs::File::create(root.path().join(format.archive_filename("archive")))?;
+        match WriteArchive::create(file, format, Some("pass")) {
+            Ok(_) => panic!("{format:?} should reject a password"),
+            Err(error) => assert!(
+                error.contains("password"),
+                "{format:?} error should mention passwords, got {error}"
+            ),
+        }
     }
     Ok(())
 }

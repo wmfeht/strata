@@ -137,6 +137,10 @@ Enumerates locations, retrieves metadata, watches changes, and reports supported
 
 Owns mutations, progress, cancellation, conflicts, and partial outcomes. UI code submits commands and observes operation state.
 
+### Archives
+
+Compress and extract go through libarchive. The support target is the formats and features libarchive can read or write; anything else is out of scope. That includes writing encrypted ZIP or 7z, which libarchive cannot do. Encrypted archives libarchive can *read* are still extracted after a password prompt.
+
 ### Search provider
 
 Streams scoped results and supports cancellation. Current-list filtering can remain in the application model; recursive filename and content search are providers.

@@ -532,10 +532,10 @@ fn visit_archive_entry<Fd: AsFd>(
 /// Writes an archive of `entries` into `file` using libarchive.
 ///
 /// ZIP uses deflate for every regular file; libarchive cannot change ZIP
-/// compression after the first header. ZIP and 7z honor `password`.
-/// 7z rejects symbolic links. File modes are preserved from the source
-/// (masked to `0o7777`); non-UTF-8 paths and link targets are rejected because
-/// libarchive2 writes pathnames as UTF-8.
+/// compression after the first header. Passwords are rejected: libarchive
+/// cannot write encrypted archives. 7z rejects symbolic links. File modes are
+/// preserved from the source (masked to `0o7777`); non-UTF-8 paths and link
+/// targets are rejected because libarchive2 writes pathnames as UTF-8.
 ///
 /// # Errors
 ///
@@ -1376,8 +1376,8 @@ impl ExtractBudget {
                 "This archive is larger than the free space available at the destination",
             ));
         }
-        // Always apply the cap, including for archives larger than a few tens of
-        // MiB: skipping it for "large" files is how a padded zip bomb fills the disk.
+        // The ratio always applies: padding the archive to look large is how a
+        // bomb would otherwise fill the disk.
         let max = self
             .compressed_size
             .saturating_mul(u64::from(self.limits.bomb_ratio));
