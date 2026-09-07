@@ -261,6 +261,11 @@ fn compress(request: ArchiveRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHa
                 request_id: request.id,
                 message: error,
             }),
+            // Compression never prompts: a decoder hint here is still a failure.
+            Err(ArchiveError::NeedsPassword(error)) => emit(OperationEvent::Failed {
+                request_id: request.id,
+                message: error,
+            }),
         }
     });
     LoadHandle::new(move || {
@@ -360,7 +365,7 @@ fn extract(request: ArchiveRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHan
                 Vec::new(),
                 Vec::new(),
             )),
-            Ok(Err(ArchiveError::Failed(error))) if password_error(&error) => {
+            Ok(Err(ArchiveError::NeedsPassword(_))) => {
                 emit(OperationEvent::PasswordRequired {
                     request_id: request.id,
                     archive,
@@ -678,6 +683,50 @@ fn suffixed_name(name: &OsStr, index: u64) -> OsString {
     OsString::from_vec(candidate)
 }
 
+/// Splits a ` (N)` numeric suffix off `stem`, if present.
+///
+/// Returns the base stem without the suffix and `N`. Used so a second
+/// collision on an already-renamed `a (2).txt` becomes `a (3).txt` rather
+/// than `a (2) (2).txt`.
+fn split_numeric_suffix(stem: &[u8]) -> Option<(Vec<u8>, u64)> {
+    if !stem.ends_with(b")") {
+        return None;
+    }
+    let open = stem.iter().rposition(|&byte| byte == b'(')?;
+    if open == 0 || stem[open - 1] != b' ' {
+        return None;
+    }
+    let digits = &stem[open + 1..stem.len() - 1];
+    if digits.is_empty() || !digits.iter().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let base = &stem[..open - 1];
+    if base.is_empty() {
+        return None;
+    }
+    let number = std::str::from_utf8(digits).ok()?.parse::<u64>().ok()?;
+    Some((base.to_vec(), number))
+}
+
+/// Returns the `index`-th candidate for `name`, incrementing an existing
+/// ` (N)` suffix instead of stacking another one.
+fn suffixed_candidate(name: &OsStr, index: u64) -> OsString {
+    let path = Path::new(name);
+    let stem = path.file_stem().unwrap_or(name);
+    if let Some((base, number)) = split_numeric_suffix(stem.as_bytes()) {
+        let next = number.saturating_add(index.saturating_sub(1));
+        let mut candidate = base;
+        candidate.extend_from_slice(format!(" ({next})").as_bytes());
+        if let Some(extension) = path.extension() {
+            candidate.push(b'.');
+            candidate.extend_from_slice(extension.as_bytes());
+        }
+        OsString::from_vec(candidate)
+    } else {
+        suffixed_name(name, index)
+    }
+}
+
 /// Pinned destination directory for extraction.
 ///
 /// All member creates go through this root with `NOFOLLOW`, so a symlink
@@ -707,9 +756,12 @@ impl ExtractionDestination {
 
     /// Finds a name in `directory` that does not already exist.
     ///
-    /// Tries `name`, then [`suffixed_name`] with increasing indexes. Existing
-    /// regular files and directories are skipped; special filesystem objects
-    /// (devices, sockets, existing symlinks) are refused rather than overwritten.
+    /// Tries `name`, then [`suffixed_candidate`] with increasing indexes.
+    /// An existing ` (N)` suffix is incremented (`a (2).txt` -> `a (3).txt`)
+    /// so a duplicate of an already-renamed top level does not stack to
+    /// `a (2) (2).txt`. Existing regular files and directories are skipped;
+    /// special filesystem objects (devices, sockets, existing symlinks) are
+    /// refused rather than overwritten.
     ///
     /// # Errors
     ///
@@ -720,7 +772,7 @@ impl ExtractionDestination {
             let candidate = if index == 1 {
                 name.to_owned()
             } else {
-                suffixed_name(name, index)
+                suffixed_candidate(name, index)
             };
             match rustix::fs::statat(directory, &candidate, rustix::fs::AtFlags::SYMLINK_NOFOLLOW) {
                 Err(rustix::io::Errno::NOENT) => return Ok(candidate),
@@ -948,7 +1000,7 @@ impl ExtractionDestination {
     /// Returns an error if `path` has no file name, a parent cannot be opened,
     /// or the unlink fails.
     fn remove_file(&self, path: &Path) -> Result<(), String> {
-        let parent = self.create_directories(path.parent().unwrap_or_else(|| Path::new("")))?;
+        let parent = self.open_parent_directory(path)?;
         let name = path
             .file_name()
             .ok_or_else(|| "Archive entry has no file name".to_owned())?;
@@ -998,13 +1050,17 @@ enum ArchiveError {
     Cancelled,
     /// Encoding, decoding, or filesystem work failed with this message.
     Failed(String),
+    /// libarchive reported an encrypted member that needs a password.
+    /// Separate from [`Failed`] so policy refusals that embed the member
+    /// path (e.g. `.../password-notes/...`) are never mistaken for encryption.
+    NeedsPassword(String),
 }
 
 impl std::fmt::Display for ArchiveError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Cancelled => f.write_str(ARCHIVE_CANCELLED),
-            Self::Failed(message) => f.write_str(message),
+            Self::Failed(message) | Self::NeedsPassword(message) => f.write_str(message),
         }
     }
 }
@@ -1025,6 +1081,19 @@ impl From<&str> for ArchiveError {
 
 fn archive_failed(error: impl std::fmt::Display) -> ArchiveError {
     ArchiveError::Failed(error.to_string())
+}
+
+/// Maps a libarchive decoder error to [`ArchiveError`].
+///
+/// Only decoder errors are inspected for password hints. Policy and
+/// filesystem errors use [`archive_failed`] directly so a member path
+/// containing `password`/`encrypt` never becomes `NeedsPassword`.
+fn libarchive_failed(message: String) -> ArchiveError {
+    if password_error(&message) {
+        ArchiveError::NeedsPassword(message)
+    } else {
+        ArchiveError::Failed(message)
+    }
 }
 
 /// Result of an extract that may stop after writing some members.
@@ -1455,7 +1524,7 @@ fn extract_archive_with_limits(
         written: 0,
         members: 0,
     };
-    let mut archive = ReadArchive::open(archive_path, password)?;
+    let mut archive = ReadArchive::open(archive_path, password).map_err(libarchive_failed)?;
     let mut resolver = ExtractNameResolver::new();
     let mut first_name = None;
     let mut completed = Vec::new();
@@ -1471,11 +1540,11 @@ fn extract_archive_with_limits(
                 not_attempted: Vec::new(),
             });
         }
-        let Some(member) = archive.next_member()? else {
+        let Some(member) = archive.next_member().map_err(libarchive_failed)? else {
             break;
         };
         if is_root_placeholder(&member) {
-            archive.skip_data()?;
+            archive.skip_data().map_err(libarchive_failed)?;
             continue;
         }
         if cancelled.load(Ordering::Relaxed) {
@@ -1511,14 +1580,14 @@ fn extract_archive_with_limits(
                 ))
             })?;
             let original = validated_archive_os_path(target_name)?;
-            archive.skip_data()?;
+            archive.skip_data().map_err(libarchive_failed)?;
             pending_hardlinks.push((path, outpath, original));
             continue;
         }
         let created = match member.kind {
             MemberKind::Directory => {
                 destination.create_directories(&outpath)?;
-                archive.skip_data()?;
+                archive.skip_data().map_err(libarchive_failed)?;
                 outpath
             }
             MemberKind::Symlink => {
@@ -1532,7 +1601,7 @@ fn extract_archive_with_limits(
                     )));
                 }
                 let created = destination.create_symlink(&outpath, target)?;
-                archive.skip_data()?;
+                archive.skip_data().map_err(libarchive_failed)?;
                 created
             }
             MemberKind::Special => {
@@ -1556,6 +1625,12 @@ fn extract_archive_with_limits(
                             Vec::new(),
                             removed,
                         )),
+                        // `copy_with_big_buf` errors never embed the member
+                        // path (libarchive message, OS error, or fixed budget
+                        // text), so a password hint here is a decoder failure.
+                        ArchiveError::Failed(message) if password_error(&message) => {
+                            Err(ArchiveError::NeedsPassword(message))
+                        }
                         failed => Err(failed),
                     };
                 }
