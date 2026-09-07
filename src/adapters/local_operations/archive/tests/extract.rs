@@ -5,6 +5,7 @@ use std::{
     ffi::OsStr,
     fs,
     io::Write as _,
+    os::unix::fs::MetadataExt as _,
     path::Path,
     sync::{Arc, atomic::AtomicUsize},
 };
@@ -117,7 +118,7 @@ fn symlink_policy() -> Result<(), Box<dyn Error>> {
     fs::create_dir(&destination)?;
     let safe = root.path().join("safe.tar");
     let mut writer = WriteArchive::create(fs::File::create(&safe)?, ArchiveFormat::Tar, None)?;
-    writer.write_file_header(Path::new("file.txt"), 4, None)?;
+    writer.write_file_header(Path::new("file.txt"), 4, 0o644, None)?;
     writer.write_all(b"data")?;
     writer.finish_entry()?;
     writer.write_symlink(Path::new("link"), OsStr::new("file.txt"))?;
@@ -162,6 +163,123 @@ fn symlink_policy() -> Result<(), Box<dyn Error>> {
     assert!(extract_here(&intermediate_archive, &redirected).is_err());
     assert!(!root.path().join("missing").exists());
     assert!(!external.join("marker").exists());
+    Ok(())
+}
+
+/// TAR hard links share the source inode instead of copying bytes.
+#[test]
+fn hardlink_same_inode() -> Result<(), Box<dyn Error>> {
+    let root = tempfile::tempdir()?;
+    let destination = root.path().join("destination");
+    fs::create_dir(&destination)?;
+    let archive = root.path().join("links.tar");
+    let mut writer = WriteArchive::create(fs::File::create(&archive)?, ArchiveFormat::Tar, None)?;
+    writer.write_file_header(Path::new("file.txt"), 4, 0o644, None)?;
+    writer.write_all(b"data")?;
+    writer.finish_entry()?;
+    writer.write_hardlink(Path::new("link"), OsStr::new("file.txt"))?;
+    writer.finish()?;
+
+    extract_here(&archive, &destination)?;
+    let file = fs::metadata(destination.join("file.txt"))?;
+    let link = fs::metadata(destination.join("link"))?;
+    assert_eq!(
+        file.ino(),
+        link.ino(),
+        "extracted hard link should share the source inode"
+    );
+    assert_eq!(
+        file.nlink(),
+        2,
+        "extracted hard link should increment nlink"
+    );
+    assert_eq!(fs::read(destination.join("link"))?, b"data");
+    Ok(())
+}
+
+/// A hard link that appears before its referent still resolves after the archive is exhausted.
+#[test]
+fn hardlink_forward_reference() -> Result<(), Box<dyn Error>> {
+    let root = tempfile::tempdir()?;
+    let destination = root.path().join("destination");
+    fs::create_dir(&destination)?;
+    let archive = root.path().join("links.tar");
+    let mut writer = WriteArchive::create(fs::File::create(&archive)?, ArchiveFormat::Tar, None)?;
+    writer.write_hardlink(Path::new("link"), OsStr::new("file.txt"))?;
+    writer.write_file_header(Path::new("file.txt"), 4, 0o644, None)?;
+    writer.write_all(b"data")?;
+    writer.finish_entry()?;
+    writer.finish()?;
+
+    extract_here(&archive, &destination)?;
+    let file = fs::metadata(destination.join("file.txt"))?;
+    let link = fs::metadata(destination.join("link"))?;
+    assert_eq!(
+        file.ino(),
+        link.ino(),
+        "forward-reference hard link should share the source inode"
+    );
+    assert_eq!(fs::read(destination.join("link"))?, b"data");
+    Ok(())
+}
+
+/// Hard-link chains (link → link → file) resolve across passes.
+#[test]
+fn hardlink_chain() -> Result<(), Box<dyn Error>> {
+    let root = tempfile::tempdir()?;
+    let destination = root.path().join("destination");
+    fs::create_dir(&destination)?;
+    let archive = root.path().join("links.tar");
+    let mut writer = WriteArchive::create(fs::File::create(&archive)?, ArchiveFormat::Tar, None)?;
+    writer.write_hardlink(Path::new("link2"), OsStr::new("link1"))?;
+    writer.write_hardlink(Path::new("link1"), OsStr::new("file.txt"))?;
+    writer.write_file_header(Path::new("file.txt"), 4, 0o644, None)?;
+    writer.write_all(b"data")?;
+    writer.finish_entry()?;
+    writer.finish()?;
+
+    extract_here(&archive, &destination)?;
+    let file = fs::metadata(destination.join("file.txt"))?;
+    let link1 = fs::metadata(destination.join("link1"))?;
+    let link2 = fs::metadata(destination.join("link2"))?;
+    assert_eq!(
+        file.ino(),
+        link1.ino(),
+        "chain link1 should share the source inode"
+    );
+    assert_eq!(
+        file.ino(),
+        link2.ino(),
+        "chain link2 should share the source inode"
+    );
+    assert_eq!(
+        file.nlink(),
+        3,
+        "chain should produce three directory entries"
+    );
+    Ok(())
+}
+
+/// A hard link whose target never appears in the archive is refused.
+#[test]
+fn hardlink_missing_target() -> Result<(), Box<dyn Error>> {
+    let root = tempfile::tempdir()?;
+    let destination = root.path().join("destination");
+    fs::create_dir(&destination)?;
+    let archive = root.path().join("links.tar");
+    let mut writer = WriteArchive::create(fs::File::create(&archive)?, ArchiveFormat::Tar, None)?;
+    writer.write_file_header(Path::new("file.txt"), 4, 0o644, None)?;
+    writer.write_all(b"data")?;
+    writer.finish_entry()?;
+    writer.write_hardlink(Path::new("link"), OsStr::new("missing.txt"))?;
+    writer.finish()?;
+
+    let error = extract_here(&archive, &destination)
+        .expect_err("a hard link to a missing member should be refused");
+    assert!(
+        error.contains("Hard link target was not extracted"),
+        "{error}"
+    );
     Ok(())
 }
 
@@ -220,7 +338,7 @@ fn bomb_ratio() -> Result<(), Box<dyn Error>> {
     let error = extract_limited(
         &archive,
         &destination,
-        ExtractLimits::for_test(10 * 1024 * 1024, 100, 16, 1024 * 1024, 2),
+        ExtractLimits::for_test(10 * 1024 * 1024, 100, 16, 2),
     )
     .expect_err("a high-ratio archive should be refused");
     assert!(
@@ -254,7 +372,7 @@ fn bomb_member_count() -> Result<(), Box<dyn Error>> {
     let error = extract_limited(
         &archive,
         &destination,
-        ExtractLimits::for_test(10 * 1024 * 1024, 2, 16, 1024 * 1024, 200),
+        ExtractLimits::for_test(10 * 1024 * 1024, 2, 16, 200),
     )
     .expect_err("an over-limit member count should be refused");
     assert!(
@@ -282,7 +400,7 @@ fn bomb_path_depth() -> Result<(), Box<dyn Error>> {
     let error = extract_limited(
         &archive,
         &destination,
-        ExtractLimits::for_test(10 * 1024 * 1024, 100, 2, 1024 * 1024, 200),
+        ExtractLimits::for_test(10 * 1024 * 1024, 100, 2, 200),
     )
     .expect_err("an over-limit path depth should be refused");
     assert!(

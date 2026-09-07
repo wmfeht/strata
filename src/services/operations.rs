@@ -159,8 +159,7 @@ impl ArchiveFormat {
 }
 
 const EXTRACT_ONLY_SUFFIXES: &[&str] = &[
-    ".tar.xz", ".txz", ".tar.zst", ".tzst", ".tar.bz2", ".tbz2", ".tbz", ".rar", ".gz", ".xz",
-    ".zst", ".bz2",
+    ".tar.xz", ".txz", ".tar.zst", ".tzst", ".tar.bz2", ".tbz2", ".tbz", ".rar",
 ];
 
 /// Whether `name` looks like an archive this app can extract.
@@ -168,7 +167,9 @@ const EXTRACT_ONLY_SUFFIXES: &[&str] = &[
 /// Recognition is by suffix, including compound suffixes such as `.tar.gz`.
 /// Creatable formats go through [`ArchiveFormat::from_extension`]; extract-only
 /// suffixes are listed separately. libarchive still decides whether the bytes
-/// are a valid archive.
+/// are a valid archive. Single-stream `.gz` / `.xz` / `.zst` / `.bz2` are
+/// intentionally excluded: they need libarchive's raw format, which the reader
+/// does not enable (`archive_read_support_format_all` omits raw).
 pub fn is_extractable_archive(name: &str) -> bool {
     if ArchiveFormat::from_extension(name).is_some() {
         return true;

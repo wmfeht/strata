@@ -8,7 +8,7 @@
 //! name. Extraction pins the destination directory and creates members with
 //! `openat`/`mkdirat` and `NOFOLLOW`, after [`validated_archive_path`] rejects
 //! absolute paths, `..`, and Windows drive prefixes. Zip-bomb limits bound
-//! written bytes, member count, and path depth.
+//! written bytes, member count, path depth, and expansion ratio.
 //!
 //! # Main entry point
 //!
@@ -56,28 +56,17 @@ use crate::{
     },
 };
 
-/// Writes an archive through a staging file, then publishes it at `archive_path`.
+/// Writes an archive through a `0o600` staging file, then publishes it at `archive_path`.
 ///
-/// Creates a `.strata-compression-` tempfile in `destination` with mode `0o600`,
-/// runs `write_archive` on a worker thread, applies the published permissions,
-/// and persists the file according to `conflict`. [`FailIfExists`] refuses to
-/// replace an existing archive; [`ReplaceExisting`] overwrites it and copies
-/// the current destination file's mode when that path is already a regular
-/// file. Otherwise the published mode is `0o666` masked by the process umask.
-///
-/// # Arguments
-///
-/// * `destination` - Directory that holds both the staging file and the final archive
-/// * `archive_path` - Final path to publish once encoding succeeds
-/// * `conflict` - Whether an existing archive may be replaced
-/// * `cancelled` - Flag checked after encoding and before persist
-/// * `write_archive` - Encoder that writes the archive body into the staging file
+/// Staging keeps a partial archive off the destination name. [`FailIfExists`]
+/// refuses to replace; [`ReplaceExisting`] overwrites and copies the existing
+/// regular file's mode. Otherwise the published mode is `0o666` masked by the
+/// process umask (read from `/proc` to avoid the `umask(2)` race).
 ///
 /// # Errors
 ///
 /// - [`Cancelled`] if `cancelled` is set after encoding finishes
-/// - [`Failed`] if staging, encoding, permission updates, or persist fail, including
-///   when the compression task panics
+/// - [`Failed`] if staging, encoding, permission updates, or persist fail
 ///
 /// [`Cancelled`]: ArchiveError::Cancelled
 /// [`Failed`]: ArchiveError::Failed
@@ -126,7 +115,6 @@ where
     .map_err(archive_failed)
 }
 
-/// Returns `0o666` masked by the process umask from [`process_umask`].
 fn umask_adjusted_file_permissions() -> std::fs::Permissions {
     std::fs::Permissions::from_mode(0o666 & !process_umask())
 }
@@ -396,7 +384,10 @@ fn extract(request: ArchiveRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHan
 
 fn password_error(message: &str) -> bool {
     let lower = message.to_ascii_lowercase();
-    lower.contains("password") || lower.contains("passphrase") || lower.contains("encrypt")
+    lower.contains("password")
+        || lower.contains("passphrase")
+        || lower.contains("encrypt")
+        || lower.contains("decrypt")
 }
 
 /// An opened compression source, re-read from disk relative to its parent
@@ -497,14 +488,6 @@ fn visit_archive_entries(
 /// `archive_path` is the member path written into the archive, rooted at the
 /// originally selected entry's file name.
 ///
-/// # Arguments
-///
-/// * `parent` - Already-open parent directory of `name`
-/// * `name` - Directory entry to open without following symbolic links
-/// * `archive_path` - Relative path recorded for this member
-/// * `cancelled` - Flag checked before opening and before each child
-/// * `visit` - Callback invoked with the archive path and opened source
-///
 /// # Errors
 ///
 /// - [`Cancelled`] if `cancelled` is set
@@ -545,7 +528,8 @@ fn visit_archive_entry<Fd: AsFd>(
 ///
 /// ZIP uses deflate for every regular file; libarchive cannot change ZIP
 /// compression after the first header. ZIP and 7z honor `password`.
-/// 7z rejects symbolic links. Non-UTF-8 link targets are rejected because
+/// 7z rejects symbolic links. File modes are preserved from the source
+/// (masked to `0o7777`); non-UTF-8 paths and link targets are rejected because
 /// libarchive2 writes pathnames as UTF-8.
 ///
 /// # Errors
@@ -566,7 +550,10 @@ fn compress_entries(
     let mut writer = WriteArchive::create(file, format, password)?;
     visit_archive_entries(entries, cancelled, &mut |path, source| {
         match source {
-            ArchiveSource::Directory(_) => writer.write_directory(path)?,
+            ArchiveSource::Directory(directory) => {
+                let perm = source_perm(directory, 0o755);
+                writer.write_directory(path, perm)?;
+            }
             ArchiveSource::Symlink(target) => {
                 if format == ArchiveFormat::SevenZ {
                     return Err(archive_failed(format!(
@@ -585,8 +572,9 @@ fn compress_entries(
             }
             ArchiveSource::File(file) => {
                 let metadata = file.metadata().map_err(archive_failed)?;
+                let perm = metadata_perm(&metadata, 0o644);
                 let mtime = file_mtime(&metadata);
-                writer.write_file_header(path, metadata.len(), mtime)?;
+                writer.write_file_header(path, metadata.len(), perm, mtime)?;
                 copy_with_big_buf(
                     BufReader::with_capacity(COPY_BUF, file),
                     &mut writer,
@@ -602,6 +590,20 @@ fn compress_entries(
     check_archive_cancelled(cancelled)?;
     writer.finish()?;
     Ok(())
+}
+
+fn source_perm(file: &std::fs::File, fallback: u32) -> u32 {
+    file.metadata()
+        .map(|metadata| metadata_perm(&metadata, fallback))
+        .unwrap_or(fallback)
+}
+
+fn metadata_perm(metadata: &std::fs::Metadata, fallback: u32) -> u32 {
+    use std::os::unix::fs::PermissionsExt as _;
+    let mode = metadata.permissions().mode() & 0o7777;
+    // A zero mode means the metadata gave nothing useful; keep the fallback
+    // (`0o644` for files, `0o755` for directories) instead of writing `---`.
+    if mode == 0 { fallback } else { mode }
 }
 
 fn file_mtime(metadata: &std::fs::Metadata) -> Option<i64> {
@@ -851,33 +853,89 @@ impl ExtractionDestination {
         Ok(created)
     }
 
-    /// Opens an already-extracted regular file under the destination root without following links.
+    /// Opens each component of `path`'s parent under the destination root without creating it.
+    ///
+    /// Each component is opened with [`DIRECTORY`] and [`NOFOLLOW`]. Used to
+    /// inspect an already-extracted hard-link target; missing parents are an
+    /// error rather than a mkdir.
+    ///
+    /// [`DIRECTORY`]: rustix::fs::OFlags::DIRECTORY
+    /// [`NOFOLLOW`]: rustix::fs::OFlags::NOFOLLOW
+    fn open_parent_directory(&self, path: &Path) -> Result<OwnedFd, String> {
+        let mut directory = self.root.try_clone().map_err(|error| error.to_string())?;
+        let parent = path.parent().unwrap_or_else(|| Path::new(""));
+        for component in parent.components() {
+            let Component::Normal(name) = component else {
+                return Err("Invalid internal extraction path".to_owned());
+            };
+            directory = rustix::fs::openat(
+                &directory,
+                name,
+                rustix::fs::OFlags::RDONLY
+                    | rustix::fs::OFlags::DIRECTORY
+                    | rustix::fs::OFlags::NOFOLLOW
+                    | rustix::fs::OFlags::CLOEXEC,
+                rustix::fs::Mode::empty(),
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        Ok(directory)
+    }
+
+    /// Hard-links `path` to the already-extracted regular file `target`.
+    ///
+    /// `linkat` is used instead of a copy so backup tarballs that share inodes
+    /// do not multiply disk use or the write budget. Both sides are
+    /// descriptor-relative with `NOFOLLOW`; a symlink target is refused.
     ///
     /// # Errors
     ///
-    /// Returns an error if `path` has no file name, a parent cannot be opened,
-    /// the leaf cannot be opened, or it is not a regular file.
-    fn open_regular_file(&self, path: &Path) -> Result<std::fs::File, String> {
+    /// Returns an error if `path` or `target` has no file name, a parent cannot
+    /// be opened, `target` is not a regular file, no unused name can be found,
+    /// or `linkat` fails.
+    fn create_hard_link(&self, path: &Path, target: &Path) -> Result<PathBuf, String> {
+        let target_parent = self.open_parent_directory(target)?;
+        let target_name = target
+            .file_name()
+            .ok_or_else(|| "Archive entry has no file name".to_owned())?;
+        match rustix::fs::statat(
+            &target_parent,
+            target_name,
+            rustix::fs::AtFlags::SYMLINK_NOFOLLOW,
+        ) {
+            Ok(stat)
+                if rustix::fs::FileType::from_raw_mode(stat.st_mode)
+                    == rustix::fs::FileType::RegularFile => {}
+            Ok(_) => return Err("Hard link target is not a regular file".to_owned()),
+            Err(error) => {
+                return Err(format!(
+                    "Could not inspect hard link target {}: {error}",
+                    target.display()
+                ));
+            }
+        }
         let parent = self.create_directories(path.parent().unwrap_or_else(|| Path::new("")))?;
         let name = path
             .file_name()
             .ok_or_else(|| "Archive entry has no file name".to_owned())?;
-        let file = rustix::fs::openat(
-            parent,
-            name,
-            rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::CLOEXEC,
-            rustix::fs::Mode::empty(),
-        )
-        .map(std::fs::File::from)
-        .map_err(|error| error.to_string())?;
-        if !file
-            .metadata()
-            .map_err(|error| error.to_string())?
-            .is_file()
+        let name = self.available_name(&parent, name)?;
+        let mut created = PathBuf::new();
+        if let Some(parent_path) = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
         {
-            return Err("Hard link target is not a regular file".to_owned());
+            created.push(parent_path);
         }
-        Ok(file)
+        created.push(&name);
+        rustix::fs::linkat(
+            &target_parent,
+            target_name,
+            &parent,
+            &name,
+            rustix::fs::AtFlags::empty(),
+        )
+        .map_err(|error| error.to_string())?;
+        Ok(created)
     }
 
     /// Unlinks the leaf of `path` under the destination root.
@@ -926,13 +984,11 @@ fn count_archive_files(entries: &[PathBuf], cancelled: &AtomicBool) -> Result<us
     Ok(count)
 }
 
-/// Byte size of the reusable read/write buffer used by [`copy_with_big_buf`].
 const COPY_BUF: usize = 1 << 20;
 const ARCHIVE_CANCELLED: &str = "Operation cancelled";
 const EXTRACT_DISK_RESERVE: u64 = 64 * 1024 * 1024;
 const EXTRACT_MAX_MEMBERS: u32 = 1_000_000;
 const EXTRACT_MAX_PATH_DEPTH: u16 = 256;
-const EXTRACT_BOMB_RATIO_WINDOW: u64 = 64 * 1024 * 1024;
 const EXTRACT_BOMB_RATIO: u32 = 200;
 
 /// Failure or cooperative cancellation of a compress or extract step.
@@ -984,13 +1040,6 @@ enum ArchiveOutcome<T> {
     },
 }
 
-/// Returns [`ArchiveError::Cancelled`] when the `cancelled` flag is set.
-///
-/// # Errors
-///
-/// - [`Cancelled`] if `cancelled` is set
-///
-/// [`Cancelled`]: ArchiveError::Cancelled
 fn check_archive_cancelled(cancelled: &AtomicBool) -> Result<(), ArchiveError> {
     if cancelled.load(Ordering::Relaxed) {
         Err(ArchiveError::Cancelled)
@@ -999,15 +1048,6 @@ fn check_archive_cancelled(cancelled: &AtomicBool) -> Result<(), ArchiveError> {
     }
 }
 
-/// Builds an [`OperationEvent::Cancelled`] for a compress or extract request.
-///
-/// # Arguments
-///
-/// * `request_id` - Identifier of the cancelled request
-/// * `destination` - Archive path or extract directory, recorded as affected
-/// * `completed` - Members fully written before cancellation
-/// * `failed` - Members left in a partial or unremovable state
-/// * `not_attempted` - Members not started, including a cleaned-up partial write
 fn cancelled_archive_event(
     request_id: OperationRequestId,
     destination: Location,
@@ -1036,14 +1076,6 @@ fn extract_entry_location(destination: &Path, relative: &Path) -> Location {
 /// If `removed` succeeded, the interrupted path is treated as not-attempted
 /// along with `remaining`. If cleanup failed, that path is recorded as failed
 /// and `remaining` stays not-attempted.
-///
-/// # Arguments
-///
-/// * `dest_dir` - Extraction root used to build [`Location`] values
-/// * `created` - Relative path of the interrupted member
-/// * `completed` - Members fully written before the interruption
-/// * `remaining` - Members not yet opened
-/// * `removed` - Result of unlinking the partial file
 fn cancelled_extract_after_partial_write(
     dest_dir: &Path,
     created: &Path,
@@ -1112,14 +1144,6 @@ fn copy_with_big_buf(
 /// The source stays attached until the caller removes the returned
 /// [`glib::SourceId`]. Returning [`glib::ControlFlow::Break`] from the
 /// callback would double-remove that source.
-///
-/// # Arguments
-///
-/// * `request_id` - Identifier included in each progress event
-/// * `progress` - Completed member count polled each tick
-/// * `total` - Expected member count, which may still be zero during counting
-/// * `cancelled` - When set, ticks stop emitting but the source stays attached
-/// * `emit` - Callback that receives progress events on the main context
 fn archive_progress_timer(
     request_id: OperationRequestId,
     progress: &Arc<AtomicUsize>,
@@ -1206,7 +1230,6 @@ struct ExtractLimits {
     max_member_bytes: u64,
     max_members: u32,
     max_path_depth: u16,
-    bomb_ratio_window: u64,
     bomb_ratio: u32,
 }
 
@@ -1218,7 +1241,6 @@ impl ExtractLimits {
             max_member_bytes: available,
             max_members: EXTRACT_MAX_MEMBERS,
             max_path_depth: EXTRACT_MAX_PATH_DEPTH,
-            bomb_ratio_window: EXTRACT_BOMB_RATIO_WINDOW,
             bomb_ratio: EXTRACT_BOMB_RATIO,
         })
     }
@@ -1228,7 +1250,6 @@ impl ExtractLimits {
         max_total_bytes: u64,
         max_members: u32,
         max_path_depth: u16,
-        bomb_ratio_window: u64,
         bomb_ratio: u32,
     ) -> Self {
         Self {
@@ -1236,7 +1257,6 @@ impl ExtractLimits {
             max_member_bytes: max_total_bytes,
             max_members,
             max_path_depth,
-            bomb_ratio_window,
             bomb_ratio,
         }
     }
@@ -1287,15 +1307,15 @@ impl ExtractBudget {
                 "This archive is larger than the free space available at the destination",
             ));
         }
-        if self.compressed_size <= self.limits.bomb_ratio_window {
-            let max = self
-                .compressed_size
-                .saturating_mul(u64::from(self.limits.bomb_ratio));
-            if self.written > max {
-                return Err(archive_failed(
-                    "Refusing to extract a compressed archive that expands beyond the safety limit",
-                ));
-            }
+        // Always apply the cap, including for archives larger than a few tens of
+        // MiB: skipping it for "large" files is how a padded zip bomb fills the disk.
+        let max = self
+            .compressed_size
+            .saturating_mul(u64::from(self.limits.bomb_ratio));
+        if self.written > max {
+            return Err(archive_failed(
+                "Refusing to extract a compressed archive that expands beyond the safety limit",
+            ));
         }
         Ok(())
     }
@@ -1361,9 +1381,10 @@ fn set_file_mtime(file: &std::fs::File, mtime: i64) {
 /// Extracts every member of the archive at `archive_path` into `dest_dir`.
 ///
 /// Member names go through [`validated_archive_os_path`]. Symlinks are created
-/// only when their stored target stays inside the destination. Special files
-/// are refused. Written bytes, member count, and path depth are bounded by
-/// [`ExtractLimits`].
+/// only when their stored target stays inside the destination. Hard links are
+/// materialized with `linkat` after every regular member is on disk. Special
+/// files are refused. Written bytes, member count, path depth, and expansion
+/// ratio are bounded by [`ExtractLimits`].
 ///
 /// # Errors
 ///
@@ -1439,6 +1460,9 @@ fn extract_archive_with_limits(
     let mut first_name = None;
     let mut completed = Vec::new();
     let mut extracted = HashMap::<PathBuf, PathBuf>::new();
+    // Hard links are deferred until every regular member is on disk: nothing
+    // guarantees the link target precedes the link in archive order.
+    let mut pending_hardlinks = Vec::<(PathBuf, PathBuf, PathBuf)>::new();
     loop {
         if cancelled.load(Ordering::Relaxed) {
             return Ok(ArchiveOutcome::Cancelled {
@@ -1468,7 +1492,8 @@ fn extract_archive_with_limits(
         }
         let path = validated_archive_os_path(&member.pathname)?;
         budget.add_member(&path)?;
-        if let Some(size) = member.size {
+        let is_hardlink = member.kind == MemberKind::File && member.hardlink_target.is_some();
+        if !is_hardlink && let Some(size) = member.size {
             budget.check_claimed_size(size)?;
         }
         let outpath = resolver.resolve(destination, &path)?;
@@ -1478,10 +1503,23 @@ fn extract_archive_with_limits(
                 .next()
                 .map(|component| component.as_os_str().to_string_lossy().into_owned());
         }
-        match member.kind {
+        if is_hardlink {
+            let target_name = member.hardlink_target.as_deref().ok_or_else(|| {
+                archive_failed(format!(
+                    "Archive hard link {} has no target",
+                    path.display()
+                ))
+            })?;
+            let original = validated_archive_os_path(target_name)?;
+            archive.skip_data()?;
+            pending_hardlinks.push((path, outpath, original));
+            continue;
+        }
+        let created = match member.kind {
             MemberKind::Directory => {
                 destination.create_directories(&outpath)?;
                 archive.skip_data()?;
+                outpath
             }
             MemberKind::Symlink => {
                 let target = member.symlink_target.as_deref().ok_or_else(|| {
@@ -1493,51 +1531,15 @@ fn extract_archive_with_limits(
                         path.display()
                     )));
                 }
-                destination.create_symlink(&outpath, target)?;
+                let created = destination.create_symlink(&outpath, target)?;
                 archive.skip_data()?;
+                created
             }
             MemberKind::Special => {
                 return Err(archive_failed(format!(
                     "Refusing to extract a special filesystem object: {}",
                     path.display()
                 )));
-            }
-            MemberKind::File if member.hardlink_target.is_some() => {
-                let target_name = member.hardlink_target.as_deref().ok_or_else(|| {
-                    archive_failed(format!(
-                        "Archive hard link {} has no target",
-                        path.display()
-                    ))
-                })?;
-                let original = validated_archive_os_path(target_name)?;
-                let source_rel = extracted.get(&original).ok_or_else(|| {
-                    archive_failed(format!(
-                        "Hard link target was not extracted: {}",
-                        original.display()
-                    ))
-                })?;
-                let mut source = destination.open_regular_file(source_rel)?;
-                let (mut outfile, created) = destination.create_file(&outpath)?;
-                if let Err(error) = copy_with_big_buf(&mut source, &mut outfile, cancelled, |n| {
-                    budget.add_bytes(n)
-                }) {
-                    drop(outfile);
-                    let removed = destination.remove_file(&created);
-                    return match error {
-                        ArchiveError::Cancelled => Ok(cancelled_extract_after_partial_write(
-                            dest_dir,
-                            &created,
-                            completed,
-                            Vec::new(),
-                            removed,
-                        )),
-                        failed => Err(failed),
-                    };
-                }
-                if let Some(mtime) = member.mtime {
-                    set_file_mtime(&outfile, mtime);
-                }
-                archive.skip_data()?;
             }
             MemberKind::File => {
                 let (mut outfile, created) = destination.create_file(&outpath)?;
@@ -1560,11 +1562,49 @@ fn extract_archive_with_limits(
                 if let Some(mtime) = member.mtime {
                     set_file_mtime(&outfile, mtime);
                 }
+                created
             }
-        }
-        extracted.insert(path, outpath.clone());
-        completed.push(extract_entry_location(dest_dir, &outpath));
+        };
+        extracted.insert(path, created.clone());
+        completed.push(extract_entry_location(dest_dir, &created));
         progress.fetch_add(1, Ordering::Relaxed);
+    }
+    // Resolve deferred hard links after all regular members are on disk.
+    // Iterate to allow chains (link -> link -> file); fail closed when the
+    // target never appeared in the archive.
+    let mut remaining = pending_hardlinks;
+    while !remaining.is_empty() {
+        if cancelled.load(Ordering::Relaxed) {
+            return Ok(ArchiveOutcome::Cancelled {
+                completed,
+                failed: Vec::new(),
+                not_attempted: Vec::new(),
+            });
+        }
+        let mut progressed = false;
+        let mut deferred = Vec::with_capacity(remaining.len());
+        for (path, outpath, original) in remaining {
+            let Some(source_rel) = extracted.get(&original).cloned() else {
+                deferred.push((path, outpath, original));
+                continue;
+            };
+            let created = destination.create_hard_link(&outpath, &source_rel)?;
+            extracted.insert(path, created.clone());
+            completed.push(extract_entry_location(dest_dir, &created));
+            progress.fetch_add(1, Ordering::Relaxed);
+            progressed = true;
+        }
+        if !progressed {
+            let original = &deferred
+                .first()
+                .expect("should retain unresolved hard links when none progressed")
+                .2;
+            return Err(archive_failed(format!(
+                "Hard link target was not extracted: {}",
+                original.display()
+            )));
+        }
+        remaining = deferred;
     }
     Ok(ArchiveOutcome::Completed(first_name))
 }

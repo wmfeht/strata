@@ -40,12 +40,17 @@ use std::rc::Rc;
 /// Basename used when creating the archive, with `format`'s extension removed.
 ///
 /// Typing `backup.zip` while [`ArchiveFormat::Zip`] is selected yields `backup`,
-/// so the committed file is `backup.zip` rather than `backup.zip.zip`. Suffixes
+/// so the committed file is `backup.zip` rather than `backup.zip.zip`. Matching
+/// is ASCII case-insensitive (`backup.ZIP` also yields `backup`). Suffixes
 /// that do not match [`ArchiveFormat::extension`] are left intact.
 fn normalized_archive_name(name: &str, format: ArchiveFormat) -> String {
-    name.strip_suffix(&format!(".{}", format.extension()))
-        .unwrap_or(name)
-        .to_owned()
+    let suffix = format!(".{}", format.extension());
+    if name.len() >= suffix.len() && name[name.len() - suffix.len()..].eq_ignore_ascii_case(&suffix)
+    {
+        name[..name.len() - suffix.len()].to_owned()
+    } else {
+        name.to_owned()
+    }
 }
 
 /// Whether `destination` already contains a child named `archive_name`.

@@ -110,12 +110,19 @@ impl ReadArchive {
         let Some(entry) = self.inner.next_entry().map_err(crate_error)? else {
             return Ok(None);
         };
+        let hardlink_target = entry.hardlink().map(OsString::from);
+        // libarchive reports hard-link members as Unknown, not RegularFile.
+        let kind = if hardlink_target.is_some() {
+            MemberKind::File
+        } else {
+            member_kind(entry.file_type())
+        };
         Ok(Some(ArchiveMember {
             pathname: os_from_string(entry.pathname()),
-            kind: member_kind(entry.file_type()),
+            kind,
             size: u64::try_from(entry.size()).ok(),
             symlink_target: entry.symlink().map(OsString::from),
-            hardlink_target: entry.hardlink().map(OsString::from),
+            hardlink_target,
             mtime: unix_seconds(entry.mtime()),
         }))
     }
@@ -146,7 +153,8 @@ impl WriteArchive {
     /// Prepares a writer for `format` on `file`.
     ///
     /// ZIP and 7z honor `password` through libarchive's passphrase. TAR formats
-    /// reject a password.
+    /// reject a password. ZIP always uses deflate; libarchive cannot change ZIP
+    /// compression after the first header.
     ///
     /// # Errors
     ///
@@ -157,48 +165,23 @@ impl WriteArchive {
         format: ArchiveFormat,
         password: Option<&str>,
     ) -> Result<Self, String> {
-        Self::create_with_zip_store(file, format, password, false)
-    }
-
-    /// Prepares a writer for `format` on `file`, optionally storing ZIP members
-    /// uncompressed.
-    ///
-    /// `zip_stored` is ignored for non-ZIP formats. ZIP compression cannot be
-    /// changed after the first header, so the method is chosen here.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the writer cannot be allocated, the format is not
-    /// creatable, an option is rejected, or the file descriptor cannot be used.
-    pub(super) fn create_with_zip_store(
-        file: File,
-        format: ArchiveFormat,
-        password: Option<&str>,
-        zip_stored: bool,
-    ) -> Result<Self, String> {
         if password.is_some() && !format.supports_password() {
             return Err("This format does not support passwords".to_owned());
         }
         let mut builder = LibWriteArchive::new();
-        builder = match format {
-            ArchiveFormat::Zip => {
-                let method = if zip_stored {
-                    ZipCompressionMethod::Store
-                } else {
-                    ZipCompressionMethod::Deflate
-                };
-                builder
-                    .format(LibFormat::Zip)
-                    .format_option(FormatOption::ZipCompressionMethod(method))
-            }
-            ArchiveFormat::SevenZ => builder.format(LibFormat::SevenZip),
-            ArchiveFormat::TarGz => builder
-                .format(LibFormat::TarPaxRestricted)
-                .compression(CompressionFormat::Gzip),
-            ArchiveFormat::Tar => builder
-                .format(LibFormat::TarPaxRestricted)
-                .compression(CompressionFormat::None),
-        };
+        builder =
+            match format {
+                ArchiveFormat::Zip => builder.format(LibFormat::Zip).format_option(
+                    FormatOption::ZipCompressionMethod(ZipCompressionMethod::Deflate),
+                ),
+                ArchiveFormat::SevenZ => builder.format(LibFormat::SevenZip),
+                ArchiveFormat::TarGz => builder
+                    .format(LibFormat::TarPaxRestricted)
+                    .compression(CompressionFormat::Gzip),
+                ArchiveFormat::Tar => builder
+                    .format(LibFormat::TarPaxRestricted)
+                    .compression(CompressionFormat::None),
+            };
         if let Some(password) = password {
             builder = builder.passphrase(password);
         }
@@ -240,11 +223,11 @@ impl WriteArchive {
     /// # Errors
     ///
     /// Returns an error if the pathname is not UTF-8 or libarchive rejects the header.
-    pub(super) fn write_directory(&mut self, path: &Path) -> Result<(), String> {
+    pub(super) fn write_directory(&mut self, path: &Path, perm: u32) -> Result<(), String> {
         let mut entry = EntryMut::new();
         set_pathname(&mut entry, path)?;
         entry.set_file_type(FileType::Directory);
-        entry.set_perm(0o755).map_err(crate_error)?;
+        entry.set_perm(perm).map_err(crate_error)?;
         entry.set_size(0);
         self.inner()?.write_header(&entry).map_err(crate_error)
     }
@@ -270,6 +253,28 @@ impl WriteArchive {
         self.inner()?.write_header(&entry).map_err(crate_error)
     }
 
+    /// Writes a hard-link header for `path` pointing at an earlier member `target`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a name is not UTF-8 or libarchive rejects the header.
+    #[cfg(test)]
+    pub(super) fn write_hardlink(&mut self, path: &Path, target: &OsStr) -> Result<(), String> {
+        let target = target.to_str().ok_or_else(|| {
+            format!(
+                "Cannot preserve the non-UTF-8 hard link target of {}.",
+                path.display()
+            )
+        })?;
+        let mut entry = EntryMut::new();
+        set_pathname(&mut entry, path)?;
+        entry.set_hardlink(target).map_err(crate_error)?;
+        entry.set_file_type(FileType::RegularFile);
+        entry.set_perm(0o644).map_err(crate_error)?;
+        entry.set_size(0);
+        self.inner()?.write_header(&entry).map_err(crate_error)
+    }
+
     /// Writes a regular-file header.
     ///
     /// # Errors
@@ -279,12 +284,13 @@ impl WriteArchive {
         &mut self,
         path: &Path,
         size: u64,
+        perm: u32,
         mtime: Option<i64>,
     ) -> Result<(), String> {
         let mut entry = EntryMut::new();
         set_pathname(&mut entry, path)?;
         entry.set_file_type(FileType::RegularFile);
-        entry.set_perm(0o644).map_err(crate_error)?;
+        entry.set_perm(perm).map_err(crate_error)?;
         entry.set_size(i64::try_from(size).unwrap_or(i64::MAX));
         if let Some(mtime) = mtime
             && let Some(time) = unix_time(mtime)

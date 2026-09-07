@@ -121,9 +121,9 @@ fn write_archive(
     for (name, contents) in entries {
         let member = Path::new(name);
         match contents {
-            None => writer.write_directory(member)?,
+            None => writer.write_directory(member, 0o755)?,
             Some(bytes) => {
-                writer.write_file_header(member, bytes.len() as u64, None)?;
+                writer.write_file_header(member, bytes.len() as u64, 0o644, None)?;
                 writer.write_all(bytes)?;
                 writer.finish_entry()?;
             }
@@ -142,9 +142,9 @@ fn write_tar_filter(
     for (name, contents) in entries {
         let member = Path::new(name);
         match contents {
-            None => writer.write_directory(member)?,
+            None => writer.write_directory(member, 0o755)?,
             Some(bytes) => {
-                writer.write_file_header(member, bytes.len() as u64, None)?;
+                writer.write_file_header(member, bytes.len() as u64, 0o644, None)?;
                 writer.write_all(bytes)?;
                 writer.finish_entry()?;
             }
@@ -203,4 +203,29 @@ fn extract_limited(
         &never_cancelled(),
         limits,
     )
+}
+
+/// Expansion ratio still applies when the archive is larger than the old 64 MiB window.
+#[test]
+fn bomb_ratio_large_compressed_size() {
+    let mut budget = super::ExtractBudget {
+        limits: ExtractLimits::for_test(u64::MAX, 100, 16, 200),
+        compressed_size: 65 * 1024 * 1024,
+        written: 0,
+        members: 0,
+    };
+    budget
+        .add_bytes(65 * 1024 * 1024 * 200)
+        .expect("an expansion of exactly 200× should be allowed");
+    let error = budget
+        .add_bytes(1)
+        .expect_err("a 65 MiB archive should still be refused past 200×");
+    assert!(
+        matches!(
+            error,
+            ArchiveError::Failed(ref message)
+                if message.contains("expands beyond the safety limit")
+        ),
+        "{error:?}"
+    );
 }
