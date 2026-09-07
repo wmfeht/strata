@@ -33,6 +33,8 @@ use super::{
     theme::ThemeManager,
 };
 
+mod devices;
+
 pub(super) const SIDEBAR_WIDTH: i32 = 208;
 pub(super) const MIN_SIDEBAR_WIDTH: i32 = 176;
 const SIDEBAR_TRANSITION: Duration = Duration::from_millis(300);
@@ -345,10 +347,10 @@ fn present_target(
             shown_search.hide();
             return;
         }
-        let root = home_directory();
+        let roots = devices::global_search_roots();
         button.add_css_class("active");
         search_blurred_root.set_blurred(true);
-        shown_search.show(root, search_preferences.sort_preferences().show_hidden);
+        shown_search.show(roots, search_preferences.sort_preferences().show_hidden);
     });
     let search_action = gio::SimpleAction::new("search", None);
     let shortcut_search = search_dialog.clone();
@@ -359,11 +361,11 @@ fn present_target(
         if shortcut_search.is_visible() {
             shortcut_search.hide();
         } else {
-            let root = home_directory();
+            let roots = devices::global_search_roots();
             shortcut_search_button.add_css_class("active");
             shortcut_search_root.set_blurred(true);
             shortcut_search.show(
-                root,
+                roots,
                 shortcut_search_preferences.sort_preferences().show_hidden,
             );
         }
@@ -1029,6 +1031,7 @@ fn install_keyboard_navigation(
                     {
                         return glib::Propagation::Stop;
                     }
+                    view.commit_selection();
                     if !control
                         && !shift
                         && let Some(direction) = sidebar_focus_direction(key)
@@ -1046,6 +1049,13 @@ fn install_keyboard_navigation(
                     glib::Propagation::Stop
                 }
             };
+        }
+        if view.item_view_has_focus()
+            && !control
+            && !alt
+            && matches!(key, gtk::gdk::Key::Home | gtk::gdk::Key::End)
+        {
+            view.commit_selection();
         }
         if !control
             && !alt
@@ -1596,11 +1606,72 @@ pub(super) struct SidebarState {
     view: BrowserView,
     browser: Rc<Browser>,
     volume_monitor: gio::VolumeMonitor,
+    mount_monitor: gio_unix::MountMonitor,
     theme_manager: Rc<super::theme::ThemeManager>,
     place_order: RefCell<Vec<&'static str>>,
     pinned_places: Rc<RefCell<Vec<(Location, String)>>>,
     place_rows: RefCell<Vec<(Location, gtk::Button)>>,
+    trash_contents: Cell<TrashContents>,
+    trash_menu_rows: RefCell<Option<TrashMenuRows>>,
+    trash_monitor: RefCell<Option<gio::FileMonitor>>,
+    trash_probe_running: Cell<bool>,
+    trash_probe_pending: Cell<bool>,
     local_only: bool,
+}
+
+/// Rows of the Trash sidebar context menu that only make sense while Trash holds items.
+struct TrashMenuRows {
+    separator: gtk::Separator,
+    empty: gtk::Button,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TrashContents {
+    /// Not probed yet, or the probe failed.
+    Unknown,
+    Empty,
+    NonEmpty,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TrashMenuVisibility {
+    separator: bool,
+    empty: bool,
+}
+
+/// Destructive actions stay hidden until Trash is confirmed to hold something, and the
+/// separator goes with them so Properties is not left above an empty gap.
+fn trash_menu_visibility(contents: TrashContents) -> TrashMenuVisibility {
+    let visible = matches!(contents, TrashContents::NonEmpty);
+    TrashMenuVisibility {
+        separator: visible,
+        empty: visible,
+    }
+}
+
+fn sync_trash_menu_rows(rows: &TrashMenuRows, contents: TrashContents) {
+    let visibility = trash_menu_visibility(contents);
+    rows.separator.set_visible(visibility.separator);
+    rows.empty.set_visible(visibility.empty);
+}
+
+fn trash_contents_from_probe(probe: Result<bool, glib::Error>) -> TrashContents {
+    match probe {
+        Ok(true) => TrashContents::NonEmpty,
+        Ok(false) => TrashContents::Empty,
+        Err(_) => TrashContents::Unknown,
+    }
+}
+
+fn event_changes_trash_contents(event: &BrowserEvent) -> bool {
+    matches!(
+        event,
+        BrowserEvent::DeletionFinished
+            | BrowserEvent::RestorationFinished
+            | BrowserEvent::TransferFinished { .. }
+            | BrowserEvent::OperationCompletedWithErrors { .. }
+            | BrowserEvent::OperationCancelled { .. }
+    )
 }
 
 pub(super) struct SidebarView {
@@ -1610,12 +1681,16 @@ pub(super) struct SidebarView {
     update_area: gtk::Box,
     update_label: gtk::Label,
     handlers: RefCell<Vec<glib::SignalHandlerId>>,
+    mount_handler: RefCell<Option<glib::SignalHandlerId>>,
 }
 
 impl SidebarView {
     pub(super) fn disconnect(&self) {
         for handler in self.handlers.take() {
             self.state.volume_monitor.disconnect(handler);
+        }
+        if let Some(handler) = self.mount_handler.take() {
+            self.state.mount_monitor.disconnect(handler);
         }
     }
 }
@@ -1685,11 +1760,24 @@ impl SidebarState {
 
     fn append_devices(self: &Rc<Self>) {
         let volumes = self.volume_monitor.volumes();
+        let represented = self
+            .volume_monitor
+            .mounts()
+            .into_iter()
+            .chain(volumes.iter().filter_map(|volume| volume.get_mount()))
+            .filter_map(|mount| mount.root().path());
+        let fallback =
+            devices::unrepresented_devices(devices::system_mounted_devices(), represented);
         let mounts: Vec<_> = self
             .volume_monitor
             .mounts()
             .into_iter()
-            .filter(|mount| !mount.is_shadowed() && mount.volume().is_none())
+            .filter(|mount| !mount.is_shadowed())
+            .filter(|mount| {
+                !mount
+                    .volume()
+                    .is_some_and(|volume| volumes.contains(&volume))
+            })
             .filter_map(|mount| {
                 let name = mount.name().to_string();
                 let location = location_for_file(&mount.root())?;
@@ -1699,11 +1787,19 @@ impl SidebarState {
                 Some((name, location, mount))
             })
             .collect();
-        if !volumes.is_empty() || !mounts.is_empty() {
+        if !volumes.is_empty() || !mounts.is_empty() || !fallback.is_empty() {
             self.append_separator();
             self.append_heading("DEVICES");
             for volume in volumes {
                 self.append_volume(volume);
+            }
+            for device in fallback {
+                self.append_device_place(
+                    crate::assets::icons::HARD_DRIVE,
+                    &device.name,
+                    Location::local(device.root),
+                    None,
+                );
             }
             for (name, location, mount) in mounts {
                 if is_smb_location(&location) {
@@ -1791,6 +1887,71 @@ impl SidebarState {
             .is_some_and(|(_, row)| row.grab_focus())
     }
 
+    fn apply_trash_menu_visibility(&self) {
+        if let Some(rows) = self.trash_menu_rows.borrow().as_ref() {
+            sync_trash_menu_rows(rows, self.trash_contents.get());
+        }
+    }
+
+    fn set_trash_contents(&self, contents: TrashContents) {
+        if self.trash_contents.get() == contents {
+            return;
+        }
+        self.trash_contents.set(contents);
+        self.apply_trash_menu_visibility();
+    }
+
+    fn refresh_trash_contents(self: &Rc<Self>) {
+        if self.local_only {
+            return;
+        }
+        // A probe already in flight may have read Trash before this change landed, so queue
+        // another pass instead of trusting the result it is about to return.
+        if self.trash_probe_running.get() {
+            self.trash_probe_pending.set(true);
+            return;
+        }
+        self.trash_probe_running.set(true);
+        let weak = Rc::downgrade(self);
+        glib::MainContext::default().spawn_local(async move {
+            let probe = trash_has_entries(&gio::File::for_uri("trash:///")).await;
+            if let Err(error) = &probe {
+                tracing::warn!(
+                    error_domain = ?error.domain(),
+                    error_code = error.code(),
+                    "unable to read trash contents"
+                );
+            }
+            if let Some(state) = weak.upgrade() {
+                state.trash_probe_running.set(false);
+                state.set_trash_contents(trash_contents_from_probe(probe));
+                if state.trash_probe_pending.replace(false) {
+                    state.refresh_trash_contents();
+                }
+            }
+        });
+    }
+
+    /// Keeps the context menu current when another application changes `trash:///`.
+    fn watch_trash(self: &Rc<Self>) {
+        if self.trash_monitor.borrow().is_some() {
+            return;
+        }
+        let trash = gio::File::for_uri("trash:///");
+        let Ok(monitor) =
+            trash.monitor_directory(gio::FileMonitorFlags::NONE, gio::Cancellable::NONE)
+        else {
+            return;
+        };
+        let weak = Rc::downgrade(self);
+        monitor.connect_changed(move |_, _, _, _| {
+            if let Some(state) = weak.upgrade() {
+                state.refresh_trash_contents();
+            }
+        });
+        *self.trash_monitor.borrow_mut() = Some(monitor);
+    }
+
     fn append_trash_place(self: &Rc<Self>) {
         let location = Location::uri("trash:///");
         let row = sidebar_button(crate::assets::icons::TRASH, "Trash");
@@ -1813,9 +1974,17 @@ impl SidebarState {
         let properties = sidebar_context_option(crate::assets::icons::INFO, "Properties", false);
         let empty = sidebar_context_option(crate::assets::icons::TRASH, "Empty Trash…", true);
         empty.add_css_class("danger");
+        let separator = gtk::Separator::new(gtk::Orientation::Horizontal);
         menu.append(&properties);
-        menu.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        menu.append(&separator);
         menu.append(&empty);
+        *self.trash_menu_rows.borrow_mut() = Some(TrashMenuRows {
+            separator,
+            empty: empty.clone(),
+        });
+        self.apply_trash_menu_visibility();
+        self.watch_trash();
+        self.refresh_trash_contents();
         let popover = gtk::Popover::builder()
             .child(&menu)
             .autohide(true)
@@ -1842,11 +2011,15 @@ impl SidebarState {
         let context = gtk::GestureClick::new();
         context.set_button(3);
         let weak_popover = popover.downgrade();
+        let weak_state = Rc::downgrade(self);
         context.connect_pressed(move |gesture, _, x, y| {
             gesture.set_state(gtk::EventSequenceState::Claimed);
             let Some(popover) = weak_popover.upgrade() else {
                 return;
             };
+            if let Some(state) = weak_state.upgrade() {
+                state.refresh_trash_contents();
+            }
             popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(
                 x.round() as i32,
                 y.round() as i32,
@@ -2001,7 +2174,8 @@ impl SidebarState {
         let sidebar = self.widget.clone();
         let selected_row = row.clone();
         let clicked_volume = volume.clone();
-        row.connect_clicked(move |button| {
+        let mount_view = self.view.clone();
+        row.connect_clicked(move |_| {
             let volume = clicked_volume.clone();
             select_sidebar_row(&sidebar, &selected_row);
             let Some(browser) = weak_browser.upgrade() else {
@@ -2012,28 +2186,7 @@ impl SidebarState {
                 return;
             }
 
-            let window = button.root().and_downcast::<gtk::Window>();
-            let operation = gtk::MountOperation::new(window.as_ref());
-            glib::MainContext::default().spawn_local(async move {
-                match volume
-                    .mount_future(gio::MountMountFlags::NONE, Some(&operation))
-                    .await
-                {
-                    Ok(()) => {
-                        if let Some(mount) = volume.get_mount() {
-                            navigate_to_gio_file(&browser, &mount.root());
-                        }
-                    }
-                    Err(error) => {
-                        let dialog = gtk::AlertDialog::builder()
-                            .modal(true)
-                            .message("Unable to mount volume")
-                            .detail(error.to_string())
-                            .build();
-                        dialog.show(window.as_ref());
-                    }
-                }
-            });
+            mount_view.mount_volume(volume);
         });
         let (mount_can_eject, mount_can_unmount) = volume
             .get_mount()
@@ -2622,8 +2775,23 @@ fn standard_place(id: &str) -> Option<(&'static str, &'static str, glib::UserDir
     }
 }
 
+async fn trash_has_entries(root: &gio::File) -> Result<bool, glib::Error> {
+    let enumerator = root
+        .enumerate_children_future(
+            gio::FILE_ATTRIBUTE_STANDARD_NAME,
+            gio::FileQueryInfoFlags::NOFOLLOW_SYMLINKS,
+            glib::Priority::DEFAULT,
+        )
+        .await?;
+    let children = enumerator
+        .next_files_future(1, glib::Priority::DEFAULT)
+        .await?;
+    Ok(!children.is_empty())
+}
+
 fn sidebar_context_option(icon: &str, label: &str, danger: bool) -> gtk::Button {
-    let button = gtk::Button::new();
+    let button = super::accessibility::menu_item_button();
+    super::accessibility::describe_menu_item(&button, label, "");
     button.add_css_class("item-context-option");
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     let icon = if danger {
@@ -2632,11 +2800,11 @@ fn sidebar_context_option(icon: &str, label: &str, danger: bool) -> gtk::Button 
         crate::assets::primary_icon(icon, 15)
     };
     icon.add_css_class("item-context-icon");
-    let label = gtk::Label::new(Some(label));
-    label.set_xalign(0.0);
-    label.set_hexpand(true);
+    let title = gtk::Label::new(Some(label));
+    title.set_xalign(0.0);
+    title.set_hexpand(true);
     row.append(&icon);
-    row.append(&label);
+    row.append(&title);
     button.set_child(Some(&row));
     button
 }
@@ -2800,20 +2968,34 @@ pub(super) fn build_sidebar(
         browser: view.browser(),
         view,
         volume_monitor,
+        mount_monitor: gio_unix::MountMonitor::get(),
         theme_manager,
         place_order: RefCell::new(place_order),
         pinned_places: Rc::new(RefCell::new(load_pinned_places())),
         place_rows: RefCell::new(Vec::new()),
+        trash_contents: Cell::new(TrashContents::Unknown),
+        trash_menu_rows: RefCell::new(None),
+        trash_monitor: RefCell::new(None),
+        trash_probe_running: Cell::new(false),
+        trash_probe_pending: Cell::new(false),
         local_only,
     });
 
     let weak = Rc::downgrade(&state);
     state.browser.observe(move |event| {
-        if !SidebarState::event_changes_active_place(event) {
+        let changes_active_place = SidebarState::event_changes_active_place(event);
+        let changes_trash = event_changes_trash_contents(event);
+        if !changes_active_place && !changes_trash {
             return;
         }
-        if let Some(state) = weak.upgrade() {
+        let Some(state) = weak.upgrade() else {
+            return;
+        };
+        if changes_active_place {
             state.sync_active_place();
+        }
+        if changes_trash {
+            state.refresh_trash_contents();
         }
     });
 
@@ -2854,6 +3036,12 @@ pub(super) fn build_sidebar(
             state.rebuild();
         }
     }));
+    let weak = Rc::downgrade(&state);
+    let mount_handler = state.mount_monitor.connect_mounts_changed(move |_| {
+        if let Some(state) = weak.upgrade() {
+            state.rebuild();
+        }
+    });
     state.append_static_places();
     state.sync_active_place();
     SidebarView {
@@ -2863,6 +3051,7 @@ pub(super) fn build_sidebar(
         update_area,
         update_label,
         handlers: RefCell::new(handlers),
+        mount_handler: RefCell::new(Some(mount_handler)),
     }
 }
 

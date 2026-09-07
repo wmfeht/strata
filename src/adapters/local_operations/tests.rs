@@ -520,7 +520,7 @@ fn moving_a_directory_into_its_own_child_fails_instead_of_deleting_it() -> Resul
 }
 
 #[test]
-fn move_rejects_a_symlink_in_the_sources_parent_path() -> Result<(), Box<dyn Error>> {
+fn move_accepts_a_symlink_in_the_sources_parent_path() -> Result<(), Box<dyn Error>> {
     let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
         .lock()
         .map_err(|error| error.to_string())?;
@@ -539,14 +539,14 @@ fn move_rejects_a_symlink_in_the_sources_parent_path() -> Result<(), Box<dyn Err
         None,
     ));
 
-    assert!(result.is_err());
-    assert_eq!(fs::read(actual_parent.join("source.txt"))?, b"keep");
-    assert!(!target.exists());
+    assert!(result.is_ok(), "{result:?}");
+    assert!(!actual_parent.join("source.txt").exists());
+    assert_eq!(fs::read(target)?, b"keep");
     Ok(())
 }
 
 #[test]
-fn move_rejects_a_symlink_in_the_destinations_parent_path() -> Result<(), Box<dyn Error>> {
+fn move_accepts_a_symlink_in_the_destinations_parent_path() -> Result<(), Box<dyn Error>> {
     let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
         .lock()
         .map_err(|error| error.to_string())?;
@@ -565,9 +565,9 @@ fn move_rejects_a_symlink_in_the_destinations_parent_path() -> Result<(), Box<dy
         None,
     ));
 
-    assert!(result.is_err());
-    assert_eq!(fs::read(&source)?, b"keep");
-    assert!(!actual_destination.join("target.txt").exists());
+    assert!(result.is_ok(), "{result:?}");
+    assert!(!source.exists());
+    assert_eq!(fs::read(actual_destination.join("target.txt"))?, b"keep");
     Ok(())
 }
 
@@ -729,7 +729,7 @@ fn replacement_move_does_not_delete_a_substituted_source() -> Result<(), Box<dyn
 }
 
 #[test]
-fn replace_rejects_a_symlink_in_the_sources_parent_path() -> Result<(), Box<dyn Error>> {
+fn replace_accepts_a_symlink_in_the_sources_parent_path() -> Result<(), Box<dyn Error>> {
     let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
         .lock()
         .map_err(|error| error.to_string())?;
@@ -751,14 +751,14 @@ fn replace_rejects_a_symlink_in_the_sources_parent_path() -> Result<(), Box<dyn 
         Some(&mut affected_locations),
     ));
 
-    assert!(result.is_err());
-    assert_eq!(fs::read(&target)?, b"old");
+    assert!(result.is_ok(), "{result:?}");
+    assert_eq!(fs::read(&target)?, b"new");
     assert_eq!(fs::read(actual_parent.join("source.txt"))?, b"new");
     Ok(())
 }
 
 #[test]
-fn copy_rejects_a_symlink_higher_in_the_sources_parent_path() -> Result<(), Box<dyn Error>> {
+fn copy_accepts_a_symlink_higher_in_the_sources_parent_path() -> Result<(), Box<dyn Error>> {
     let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
         .lock()
         .map_err(|error| error.to_string())?;
@@ -778,8 +778,8 @@ fn copy_rejects_a_symlink_higher_in_the_sources_parent_path() -> Result<(), Box<
         None,
     ));
 
-    assert!(result.is_err());
-    assert!(!target.exists());
+    assert!(result.is_ok(), "{result:?}");
+    assert_eq!(fs::read(target)?, b"keep");
     assert_eq!(fs::read(actual_root.join("subdir/source.txt"))?, b"keep");
     Ok(())
 }
@@ -1755,6 +1755,7 @@ fn write_zip(path: &Path, entries: &[(&str, &[u8])]) -> Result<(), Box<dyn Error
 
 fn append_raw_tar_entry<W: Write>(
     builder: &mut tar::Builder<W>,
+    entry_type: tar::EntryType,
     name: &str,
     contents: &[u8],
 ) -> Result<(), Box<dyn Error>> {
@@ -1762,19 +1763,19 @@ fn append_raw_tar_entry<W: Write>(
     header.as_old_mut().name[..name.len()].copy_from_slice(name.as_bytes());
     header.set_mode(0o644);
     header.set_size(contents.len() as u64);
-    header.set_entry_type(tar::EntryType::Regular);
+    header.set_entry_type(entry_type);
     header.set_cksum();
     builder.append(&header, contents)?;
     Ok(())
 }
 
 fn write_tar(path: &Path, name: &str, contents: &[u8], gzip: bool) -> Result<(), Box<dyn Error>> {
-    write_tar_entries(path, &[(name, contents)], gzip)
+    write_tar_entries(path, &[(tar::EntryType::Regular, name, contents)], gzip)
 }
 
 fn write_tar_entries(
     path: &Path,
-    entries: &[(&str, &[u8])],
+    entries: &[(tar::EntryType, &str, &[u8])],
     gzip: bool,
 ) -> Result<(), Box<dyn Error>> {
     let file = fs::File::create(path)?;
@@ -1783,14 +1784,14 @@ fn write_tar_entries(
             file,
             flate2::Compression::default(),
         ));
-        for (name, contents) in entries {
-            append_raw_tar_entry(&mut builder, name, contents)?;
+        for (entry_type, name, contents) in entries {
+            append_raw_tar_entry(&mut builder, *entry_type, name, contents)?;
         }
         builder.into_inner()?.finish()?;
     } else {
         let mut builder = tar::Builder::new(file);
-        for (name, contents) in entries {
-            append_raw_tar_entry(&mut builder, name, contents)?;
+        for (entry_type, name, contents) in entries {
+            append_raw_tar_entry(&mut builder, *entry_type, name, contents)?;
         }
         builder.finish()?;
     }
@@ -1938,10 +1939,117 @@ fn extract_zip(path: &Path, destination: &Path) -> Result<Option<String>, String
 }
 
 #[test]
+fn tar_extraction_skips_root_directories_and_preserves_contents() -> Result<(), Box<dyn Error>> {
+    for gzip in [false, true] {
+        for root_entry in [None, Some("."), Some("./")] {
+            let root = tempfile::tempdir()?;
+            let destination = root.path().join("destination");
+            fs::create_dir_all(destination.join("folder"))?;
+            fs::write(destination.join("folder/keep.txt"), b"keep")?;
+            let archive = root.path().join("content.tar");
+            let mut entries = Vec::new();
+            if let Some(name) = root_entry {
+                entries.push((tar::EntryType::Directory, name, b"".as_slice()));
+            }
+            entries.extend([
+                (tar::EntryType::Directory, "./folder/", b"".as_slice()),
+                (tar::EntryType::Regular, "./folder/item.txt", b"contents"),
+                (tar::EntryType::Regular, "./empty.txt", b""),
+            ]);
+            write_tar_entries(&archive, &entries, gzip)?;
+            let progress = Arc::new(AtomicUsize::new(0));
+            assert_eq!(
+                completed_extract(extract_tar(
+                    &archive,
+                    &destination,
+                    gzip,
+                    &progress,
+                    &never_cancelled(),
+                )?)?,
+                Some("folder (2)".to_owned()),
+            );
+            assert_eq!(progress.load(Ordering::Relaxed), 3);
+            assert_eq!(
+                fs::read(destination.join("folder (2)/item.txt"))?,
+                b"contents"
+            );
+            assert_eq!(fs::read(destination.join("folder/keep.txt"))?, b"keep");
+            assert_eq!(fs::metadata(destination.join("empty.txt"))?.len(), 0);
+            assert_eq!(fs::read_dir(&destination)?.count(), 3);
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn tar_extraction_root_only_completes_without_a_name_and_respects_cancellation()
+-> Result<(), Box<dyn Error>> {
+    for gzip in [false, true] {
+        let root = tempfile::tempdir()?;
+        let destination = root.path().join("destination");
+        fs::create_dir(&destination)?;
+        let archive = root.path().join("content.tar");
+        write_tar_entries(&archive, &[(tar::EntryType::Directory, "./", b"")], gzip)?;
+        let progress = Arc::new(AtomicUsize::new(0));
+        assert_eq!(
+            completed_extract(extract_tar(
+                &archive,
+                &destination,
+                gzip,
+                &progress,
+                &never_cancelled(),
+            )?)?,
+            None,
+        );
+        assert!(matches!(
+            extract_tar(&archive, &destination, gzip, &progress, &always_cancelled())?,
+            ArchiveOutcome::Cancelled { completed, failed, not_attempted }
+                if completed.is_empty() && failed.is_empty() && not_attempted.is_empty()
+        ));
+        assert_eq!(progress.load(Ordering::Relaxed), 0);
+        assert!(fs::read_dir(&destination)?.next().is_none());
+    }
+    Ok(())
+}
+
+#[test]
+fn tar_extraction_rejects_empty_paths_and_root_file_entries() -> Result<(), Box<dyn Error>> {
+    for gzip in [false, true] {
+        for (entry_type, name) in [
+            (tar::EntryType::Directory, ""),
+            (tar::EntryType::Directory, "/"),
+            (tar::EntryType::Regular, ""),
+            (tar::EntryType::Regular, "."),
+            (tar::EntryType::Regular, "./"),
+            (tar::EntryType::Regular, "././"),
+        ] {
+            let root = tempfile::tempdir()?;
+            let destination = root.path().join("destination");
+            fs::create_dir(&destination)?;
+            let archive = root.path().join("content.tar");
+            write_tar_entries(&archive, &[(entry_type, name, b"")], gzip)?;
+            let progress = Arc::new(AtomicUsize::new(0));
+            assert!(
+                matches!(
+                    extract_tar(&archive, &destination, gzip, &progress, &never_cancelled()),
+                    Err(ArchiveError::Failed(_))
+                ),
+                "accepted {entry_type:?} {name:?}, gzip={gzip}"
+            );
+            assert_eq!(progress.load(Ordering::Relaxed), 0);
+            assert!(fs::read_dir(&destination)?.next().is_none());
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn archive_paths_must_be_nonempty_confined_relative_paths() -> Result<(), Box<dyn Error>> {
     for path in [
         "",
         ".",
+        "./",
+        "././",
         "../marker",
         "safe/../marker",
         "/tmp/marker",
@@ -2317,7 +2425,7 @@ fn permanent_delete_does_not_follow_a_symlink_nested_inside_the_tree() -> Result
 }
 
 #[test]
-fn permanent_delete_rejects_a_symlink_in_the_parent_path() -> Result<(), Box<dyn Error>> {
+fn permanent_delete_accepts_a_symlink_in_the_parent_path() -> Result<(), Box<dyn Error>> {
     let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
         .lock()
         .map_err(|error| error.to_string())?;
@@ -2340,15 +2448,264 @@ fn permanent_delete_rejects_a_symlink_in_the_parent_path() -> Result<(), Box<dyn
         Rc::new(move |event| emitted.borrow_mut().push(event)),
     );
     let context = glib::MainContext::default();
-    while !events
-        .borrow()
-        .iter()
-        .any(|event| matches!(event, OperationEvent::CompletedWithErrors { .. }))
-    {
+    while !events.borrow().iter().any(|event| {
+        matches!(
+            event,
+            OperationEvent::Deleted { .. }
+                | OperationEvent::CompletedWithErrors { .. }
+                | OperationEvent::Failed { .. }
+        )
+    }) {
         context.iteration(true);
     }
 
-    assert_eq!(fs::read(target)?, b"keep");
+    assert!(
+        events
+            .borrow()
+            .iter()
+            .any(|event| matches!(event, OperationEvent::Deleted { .. })),
+        "{:?}",
+        events.borrow()
+    );
+    assert!(!target.exists());
+    assert!(linked_parent.is_symlink());
+    assert!(actual_parent.is_dir());
+    Ok(())
+}
+
+#[test]
+fn parent_resolution_accepts_absolute_relative_and_chained_aliases() -> Result<(), Box<dyn Error>> {
+    let root = tempfile::tempdir()?;
+    let actual = root.path().join("actual");
+    fs::create_dir_all(actual.join("nested"))?;
+    std::os::unix::fs::symlink(&actual, root.path().join("absolute"))?;
+    std::os::unix::fs::symlink("actual", root.path().join("relative"))?;
+    std::os::unix::fs::symlink("relative", root.path().join("chain"))?;
+    std::os::unix::fs::symlink("../relative", actual.join("up"))?;
+    let expected = super::LocalFileIdentity::from_stat(&rustix::fs::stat(&actual)?);
+
+    for name in [
+        "actual",
+        "absolute",
+        "relative",
+        "chain",
+        "actual/up",
+        "chain/nested/..",
+    ] {
+        let parent = super::open_local_parent_directory(&root.path().join(name))?;
+        assert_eq!(
+            super::LocalFileIdentity::from_stat(&rustix::fs::fstat(&parent)?),
+            expected,
+            "{name}"
+        );
+    }
+    let parent = super::open_local_parent_directory(Path::new("/"))?;
+    assert_eq!(
+        super::LocalFileIdentity::from_stat(&rustix::fs::fstat(&parent)?),
+        super::LocalFileIdentity::from_stat(&rustix::fs::stat(c"/")?)
+    );
+    Ok(())
+}
+
+#[test]
+fn parent_resolution_rejects_magic_links_loops_and_dangling_aliases() -> Result<(), Box<dyn Error>>
+{
+    use std::os::fd::AsRawFd;
+
+    let root = tempfile::tempdir()?;
+    let handle = fs::File::open(root.path())?;
+    let magic = PathBuf::from(format!("/proc/self/fd/{}", handle.as_raw_fd()));
+    assert!(
+        magic.is_dir(),
+        "the fixture must expose a working procfs magic link"
+    );
+    std::os::unix::fs::symlink(&magic, root.path().join("magic"))?;
+    std::os::unix::fs::symlink("loop", root.path().join("loop"))?;
+    std::os::unix::fs::symlink("missing", root.path().join("dangling"))?;
+
+    for path in [
+        magic,
+        root.path().join("magic"),
+        root.path().join("loop"),
+        root.path().join("dangling"),
+        PathBuf::from("relative"),
+    ] {
+        assert!(
+            super::open_local_parent_directory(&path).is_err(),
+            "{}",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn permanent_delete_keeps_the_open_parent_when_its_alias_is_retargeted()
+-> Result<(), Box<dyn Error>> {
+    let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let root = tempfile::tempdir()?;
+    let actual = root.path().join("actual");
+    let outside = root.path().join("outside");
+    let alias = root.path().join("alias");
+    fs::create_dir_all(actual.join("tree/nested"))?;
+    fs::create_dir_all(outside.join("tree"))?;
+    fs::write(actual.join("tree/nested/file.txt"), b"delete")?;
+    fs::write(outside.join("tree/sentinel.txt"), b"keep")?;
+    std::os::unix::fs::symlink(&outside, actual.join("tree/decoy"))?;
+    std::os::unix::fs::symlink(&actual, &alias)?;
+    let parent = super::open_local_parent_directory(&alias)?;
+
+    std::os::unix::fs::symlink(&outside, root.path().join("replacement"))?;
+    fs::rename(root.path().join("replacement"), &alias)?;
+    glib::MainContext::default().block_on(super::permanently_delete_local(
+        parent,
+        OsString::from("tree"),
+        None,
+        gio::Cancellable::new(),
+    ))?;
+
+    assert!(!actual.join("tree").exists());
+    assert_eq!(fs::read(outside.join("tree/sentinel.txt"))?, b"keep");
+    assert_eq!(fs::read_link(alias)?, outside);
+    Ok(())
+}
+
+#[test]
+fn permanent_delete_revalidates_identity_after_a_parent_alias_changes() -> Result<(), Box<dyn Error>>
+{
+    let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let root = tempfile::tempdir()?;
+    let actual = root.path().join("actual");
+    let outside = root.path().join("outside");
+    let alias = root.path().join("alias");
+    fs::create_dir(&actual)?;
+    fs::create_dir(&outside)?;
+    fs::write(actual.join("file.txt"), b"original")?;
+    fs::write(outside.join("file.txt"), b"keep")?;
+    std::os::unix::fs::symlink(&actual, &alias)?;
+    let file = gio::File::for_path(alias.join("file.txt"));
+    let context = glib::MainContext::default();
+    let expected = context.block_on(super::local_file_identity(&file))?;
+
+    std::os::unix::fs::symlink(&outside, root.path().join("replacement"))?;
+    fs::rename(root.path().join("replacement"), &alias)?;
+    let error = context
+        .block_on(super::permanently_delete_local_path_if_unchanged(
+            alias.join("file.txt"),
+            expected,
+            gio::Cancellable::new(),
+        ))
+        .expect_err("retargeting the alias must not delete a different entry");
+
+    assert!(error.to_string().contains("changed"), "{error}");
+    assert_eq!(fs::read(actual.join("file.txt"))?, b"original");
+    assert_eq!(fs::read(outside.join("file.txt"))?, b"keep");
+    Ok(())
+}
+
+#[test]
+fn permanent_delete_of_a_symlink_through_an_alias_keeps_its_referent() -> Result<(), Box<dyn Error>>
+{
+    let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let root = tempfile::tempdir()?;
+    let actual = root.path().join("actual");
+    let alias = root.path().join("alias");
+    fs::create_dir(&actual)?;
+    fs::write(actual.join("sentinel.txt"), b"keep")?;
+    std::os::unix::fs::symlink("actual", &alias)?;
+    std::os::unix::fs::symlink(".", actual.join("link"))?;
+
+    glib::MainContext::default().block_on(super::permanently_delete_local_path_if_unchanged(
+        alias.join("link"),
+        None,
+        gio::Cancellable::new(),
+    ))?;
+
+    assert!(!actual.join("link").is_symlink());
+    assert_eq!(fs::read(actual.join("sentinel.txt"))?, b"keep");
+    assert!(alias.is_symlink());
+    Ok(())
+}
+
+#[test]
+fn copying_and_replacing_symlinks_accepts_an_aliased_destination() -> Result<(), Box<dyn Error>> {
+    let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let root = tempfile::tempdir()?;
+    let actual = root.path().join("actual");
+    let alias = root.path().join("alias");
+    let source = root.path().join("source");
+    fs::create_dir(&actual)?;
+    fs::write(root.path().join("sentinel.txt"), b"keep")?;
+    std::os::unix::fs::symlink("actual", &alias)?;
+    std::os::unix::fs::symlink("../sentinel.txt", &source)?;
+    let context = glib::MainContext::default();
+
+    for overwrite in [false, true] {
+        context.block_on(copy_recursively(
+            gio::File::for_path(&source),
+            gio::File::for_path(alias.join("link")),
+            overwrite,
+            gio::Cancellable::new(),
+            None,
+        ))?;
+        assert_eq!(
+            fs::read_link(actual.join("link"))?,
+            Path::new("../sentinel.txt")
+        );
+    }
+    context.block_on(copy_new_recursively(
+        gio::File::for_path(root.path().join("sentinel.txt")),
+        gio::File::for_path(alias.join("new.txt")),
+        gio::Cancellable::new(),
+    ))?;
+    assert_eq!(fs::read(actual.join("new.txt"))?, b"keep");
+    assert_eq!(fs::read(root.path().join("sentinel.txt"))?, b"keep");
+    Ok(())
+}
+
+#[test]
+fn compression_accepts_a_symlink_in_the_parent_path() -> Result<(), Box<dyn Error>> {
+    let root = tempfile::tempdir()?;
+    let actual = root.path().join("actual");
+    let alias = root.path().join("alias");
+    fs::create_dir_all(actual.join("tree"))?;
+    fs::write(actual.join("tree/file.txt"), b"contents")?;
+    std::os::unix::fs::symlink("actual", &alias)?;
+    let entries = [alias.join("tree")];
+    let expected = BTreeMap::from([
+        (PathBuf::from("tree"), CompressedEntry::Directory),
+        (
+            PathBuf::from("tree/file.txt"),
+            CompressedEntry::File(b"contents".to_vec()),
+        ),
+    ]);
+
+    for format in [
+        ArchiveFormat::Zip,
+        ArchiveFormat::Tar,
+        ArchiveFormat::TarGz,
+        ArchiveFormat::SevenZ,
+    ] {
+        let archive = root.path().join("archive");
+        assert_eq!(count_archive_files(&entries, &never_cancelled())?, 1);
+        assert_eq!(
+            write_compression_fixture(&archive, &entries, format, None)?,
+            1
+        );
+        assert_eq!(
+            read_compressed_entries(&archive, format, None)?,
+            expected,
+            "{format:?}"
+        );
+    }
     Ok(())
 }
 
@@ -2466,7 +2823,7 @@ fn transfer_progress_aggregates_completed_and_in_flight_file_bytes() {
     first_callback(25, 100);
     first_callback(100, 100);
     first.finish();
-    tracker.finish_item(0, Some(100));
+    tracker.finish_item(0, Some(100), None);
 
     let second = tracker.begin_file();
     let mut second_callback = second.callback();
@@ -2749,7 +3106,10 @@ fn tar_extraction_stops_without_scanning_remaining_entries() -> Result<(), Box<d
     let archive_path = root.path().join("content.tar");
     write_tar_entries(
         &archive_path,
-        &[("first.bin", b"early"), ("second.txt", b"late")],
+        &[
+            (tar::EntryType::Regular, "first.bin", b"early"),
+            (tar::EntryType::Regular, "second.txt", b"late"),
+        ],
         false,
     )?;
 
@@ -3461,3 +3821,150 @@ fn a_confirmed_undo_conflict_replaces_the_newer_item() -> Result<(), Box<dyn Err
     assert_eq!(fs::read(&original)?, b"moved");
     Ok(())
 }
+
+fn run_paste_collecting_created(
+    request: PasteRequest,
+) -> Result<Vec<Option<Location>>, Box<dyn Error>> {
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let emitted = events.clone();
+    let _operation = LocalOperationProvider.paste(
+        request,
+        Rc::new(move |event| emitted.borrow_mut().push(event)),
+    );
+
+    while !events.borrow().iter().any(|event| {
+        matches!(
+            event,
+            OperationEvent::Pasted { .. } | OperationEvent::TransferFailed { .. }
+        )
+    }) {
+        glib::MainContext::default().iteration(true);
+    }
+
+    let created = events
+        .borrow()
+        .iter()
+        .filter_map(|event| match event {
+            OperationEvent::TransferProgress {
+                created_location, ..
+            } => Some(created_location.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(matches!(
+        events.borrow().last(),
+        Some(OperationEvent::Pasted { .. })
+    ));
+    Ok(created)
+}
+
+#[test]
+fn a_copy_reports_the_destination_it_created() -> Result<(), Box<dyn Error>> {
+    let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let root = tempfile::tempdir()?;
+    let source = root.path().join("photo.jpg");
+    let destination = root.path().join("album");
+    fs::write(&source, b"original-content")?;
+    fs::create_dir(&destination)?;
+
+    let created = run_paste_collecting_created(PasteRequest {
+        id: OperationRequestId(70),
+        destination: Location::local(&destination),
+        items: vec![PasteItem {
+            source: Location::local(&source),
+            conflict: TransferConflict::FailIfExists,
+        }],
+        move_sources: false,
+    })?;
+
+    assert_eq!(
+        created.into_iter().flatten().collect::<Vec<_>>(),
+        vec![Location::local(destination.join("photo.jpg"))]
+    );
+    Ok(())
+}
+
+#[test]
+fn duplicating_a_file_reports_the_generated_name() -> Result<(), Box<dyn Error>> {
+    let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let root = tempfile::tempdir()?;
+    let destination = root.path().to_path_buf();
+    let source = destination.join("photo.jpg");
+    fs::write(&source, b"original-content")?;
+
+    let created = run_paste_collecting_created(PasteRequest {
+        id: OperationRequestId(71),
+        destination: Location::local(&destination),
+        items: vec![PasteItem {
+            source: Location::local(&source),
+            conflict: TransferConflict::FailIfExists,
+        }],
+        move_sources: false,
+    })?;
+
+    assert_eq!(
+        created.into_iter().flatten().collect::<Vec<_>>(),
+        vec![Location::local(destination.join("photo (1).jpg"))]
+    );
+    Ok(())
+}
+
+#[test]
+fn a_copy_that_replaces_an_existing_item_reports_its_destination() -> Result<(), Box<dyn Error>> {
+    let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let root = tempfile::tempdir()?;
+    let source = root.path().join("photo.jpg");
+    let destination = root.path().join("album");
+    fs::write(&source, b"new-content")?;
+    fs::create_dir(&destination)?;
+    fs::write(destination.join("photo.jpg"), b"old-content")?;
+
+    let created = run_paste_collecting_created(PasteRequest {
+        id: OperationRequestId(72),
+        destination: Location::local(&destination),
+        items: vec![PasteItem {
+            source: Location::local(&source),
+            conflict: TransferConflict::ReplaceExisting,
+        }],
+        move_sources: false,
+    })?;
+
+    assert_eq!(
+        created.into_iter().flatten().collect::<Vec<_>>(),
+        vec![Location::local(destination.join("photo.jpg"))]
+    );
+    Ok(())
+}
+
+#[test]
+fn a_move_reports_no_created_destination() -> Result<(), Box<dyn Error>> {
+    let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let root = tempfile::tempdir()?;
+    let source = root.path().join("photo.jpg");
+    let destination = root.path().join("album");
+    fs::write(&source, b"original-content")?;
+    fs::create_dir(&destination)?;
+
+    let created = run_paste_collecting_created(PasteRequest {
+        id: OperationRequestId(73),
+        destination: Location::local(&destination),
+        items: vec![PasteItem {
+            source: Location::local(&source),
+            conflict: TransferConflict::FailIfExists,
+        }],
+        move_sources: true,
+    })?;
+
+    assert!(created.into_iter().flatten().next().is_none());
+    Ok(())
+}
+
+mod trash_capabilities;
