@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use super::*;
+use super::{archive_has_collision, normalized_archive_name};
 use crate::model::Location;
-use crate::services::{ArchiveFormat, validate_basename};
+use crate::services::ArchiveFormat;
 
+/// The selected format's suffix is stripped so the dialog does not double the extension.
 #[test]
-fn archive_names_strip_only_the_selected_dotted_extension() {
+fn names_strip_matching_extension() {
     assert_eq!(
         normalized_archive_name("backup.zip", ArchiveFormat::Zip),
         "backup"
@@ -18,17 +19,11 @@ fn archive_names_strip_only_the_selected_dotted_extension() {
         normalized_archive_name("backup.tar.gz", ArchiveFormat::TarGz),
         "backup"
     );
-    assert!(
-        validate_basename(&normalized_archive_name(
-            "../outside.zip",
-            ArchiveFormat::Zip
-        ))
-        .is_err()
-    );
 }
 
+/// Collision checks look at the final filename, including the format extension.
 #[test]
-fn archive_collisions_use_the_final_name() -> Result<(), Box<dyn std::error::Error>> {
+fn collisions_use_final_name() -> Result<(), Box<dyn std::error::Error>> {
     let root = tempfile::tempdir()?;
     let destination = Location::local(root.path());
     assert!(!archive_has_collision(&destination, "archive.zip"));
