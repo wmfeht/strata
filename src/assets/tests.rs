@@ -87,6 +87,7 @@ fn chrome_icon_textures_are_twice_the_toolbar_size() {
     assert_eq!(texture_px_for_pixel_size(CHROME_ICON_PX), 32);
     assert_eq!(texture_px_for_pixel_size(48), 96);
     assert_eq!(texture_px_for_pixel_size(-1), 96);
+    assert_eq!(texture_px_for_pixel_size(i32::MAX), 96);
     gio::resources_register_include!("strata.gresource").expect("resources register");
     let texture = primary_icon_texture_at(icons::SEARCH, "#8bc9eb", 32).expect("icon renders");
     assert_eq!(texture.width(), 32);
@@ -103,6 +104,17 @@ fn chrome_icons_use_header_bar_pixel_size() {
             assert_eq!(icon.pixel_size(), CHROME_ICON_PX);
             assert_eq!(icon.halign(), gtk::Align::Center);
             assert_eq!(icon.valign(), gtk::Align::Center);
+            let texture_width =
+                |image: &gtk::Image| image.paintable().expect("icon texture").intrinsic_width();
+            assert_eq!(texture_width(&icon), 32);
+            crate::assets::set_primary_icon(&icon, icons::X);
+            assert_eq!(texture_width(&icon), 32);
+            crate::assets::apply_primary_icon(&icon, icons::X, "#ffffff");
+            assert_eq!(texture_width(&icon), 32);
+            for size in [16, 20, 48] {
+                let ordinary = crate::assets::primary_icon(icons::SEARCH, size);
+                assert_eq!(texture_width(&ordinary), 96);
+            }
         },
     );
 }

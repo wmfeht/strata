@@ -113,7 +113,6 @@ const ICON_TEXTURE_PX: i32 = 96;
 const ICON_TEXTURE_CACHE_LIMIT: usize = 256;
 const JETBRAINS_MONO: &[u8] = include_bytes!("../data/fonts/JetBrainsMono[wght].ttf");
 
-/// GTK header-bar / toolbar size (`GTK_ICON_SIZE_NORMAL`), not the 32px `large` size.
 pub const CHROME_ICON_PX: i32 = 16;
 
 struct PrimaryIcon {
@@ -163,13 +162,12 @@ pub fn primary_icon(name: &str, pixel_size: i32) -> gtk::Image {
     image
 }
 
-/// Compact toolbar / pane-chrome icon at GTK's header-bar size.
-///
-/// `GtkImage` defaults to `Fill`, so a themed paintable can be stretched to extra
-/// allocation that XFCE/WhiteSur header and column buttons receive. Centering keeps
-/// the glyph at [`CHROME_ICON_PX`] instead of the theme's large/app icon size.
 pub fn chrome_icon(name: &str) -> gtk::Image {
-    let image = primary_icon(name, CHROME_ICON_PX);
+    let image = gtk::Image::new();
+    image.add_css_class("chrome-icon");
+    image.set_pixel_size(CHROME_ICON_PX);
+    set_primary_icon(&image, name);
+    // Fill stretches paintables when desktop themes allocate extra button space.
     image.set_halign(gtk::Align::Center);
     image.set_valign(gtk::Align::Center);
     image
@@ -278,7 +276,11 @@ fn recolor_registered_icons(icons: &RefCell<Vec<PrimaryIcon>>, color: &str) {
 }
 
 fn apply_primary_icon(image: &gtk::Image, name: &str, color: &str) {
-    let texture_px = texture_px_for_pixel_size(image.pixel_size());
+    let texture_px = if image.has_css_class("chrome-icon") {
+        texture_px_for_pixel_size(image.pixel_size())
+    } else {
+        ICON_TEXTURE_PX
+    };
     if let Some(texture) = primary_icon_texture_at(name, color, texture_px) {
         image.set_paintable(Some(&texture));
     } else {
@@ -287,10 +289,9 @@ fn apply_primary_icon(image: &gtk::Image, name: &str, color: &str) {
 }
 
 fn texture_px_for_pixel_size(pixel_size: i32) -> i32 {
-    // 2× the display size (capped at 96) avoids 96→16 bilinear fattening on XFCE/X11
-    // while keeping enough resolution for HiDPI.
+    // Avoid excessive downsampling of toolbar strokes while supporting 2× displays.
     if pixel_size > 0 {
-        (pixel_size * 2).clamp(24, ICON_TEXTURE_PX)
+        pixel_size.saturating_mul(2).clamp(24, ICON_TEXTURE_PX)
     } else {
         ICON_TEXTURE_PX
     }
