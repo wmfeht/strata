@@ -33,6 +33,8 @@ use super::{
     theme::ThemeManager,
 };
 
+mod devices;
+
 pub(super) const SIDEBAR_WIDTH: i32 = 208;
 pub(super) const MIN_SIDEBAR_WIDTH: i32 = 176;
 const SIDEBAR_TRANSITION: Duration = Duration::from_millis(300);
@@ -340,10 +342,10 @@ fn present_target(
             shown_search.hide();
             return;
         }
-        let root = home_directory();
+        let roots = devices::global_search_roots();
         button.add_css_class("active");
         search_blurred_root.set_blurred(true);
-        shown_search.show(root, search_preferences.sort_preferences().show_hidden);
+        shown_search.show(roots, search_preferences.sort_preferences().show_hidden);
     });
     let search_action = gio::SimpleAction::new("search", None);
     let shortcut_search = search_dialog.clone();
@@ -354,11 +356,11 @@ fn present_target(
         if shortcut_search.is_visible() {
             shortcut_search.hide();
         } else {
-            let root = home_directory();
+            let roots = devices::global_search_roots();
             shortcut_search_button.add_css_class("active");
             shortcut_search_root.set_blurred(true);
             shortcut_search.show(
-                root,
+                roots,
                 shortcut_search_preferences.sort_preferences().show_hidden,
             );
         }
@@ -1024,6 +1026,7 @@ fn install_keyboard_navigation(
                     {
                         return glib::Propagation::Stop;
                     }
+                    view.commit_selection();
                     if !control
                         && !shift
                         && let Some(direction) = sidebar_focus_direction(key)
@@ -1041,6 +1044,13 @@ fn install_keyboard_navigation(
                     glib::Propagation::Stop
                 }
             };
+        }
+        if view.item_view_has_focus()
+            && !control
+            && !alt
+            && matches!(key, gtk::gdk::Key::Home | gtk::gdk::Key::End)
+        {
+            view.commit_selection();
         }
         if !control
             && !alt
@@ -1591,6 +1601,7 @@ pub(super) struct SidebarState {
     view: BrowserView,
     browser: Rc<Browser>,
     volume_monitor: gio::VolumeMonitor,
+    mount_monitor: gio_unix::MountMonitor,
     theme_manager: Rc<super::theme::ThemeManager>,
     place_order: RefCell<Vec<&'static str>>,
     pinned_places: Rc<RefCell<Vec<(Location, String)>>>,
@@ -1665,12 +1676,16 @@ pub(super) struct SidebarView {
     update_area: gtk::Box,
     update_label: gtk::Label,
     handlers: RefCell<Vec<glib::SignalHandlerId>>,
+    mount_handler: RefCell<Option<glib::SignalHandlerId>>,
 }
 
 impl SidebarView {
     pub(super) fn disconnect(&self) {
         for handler in self.handlers.take() {
             self.state.volume_monitor.disconnect(handler);
+        }
+        if let Some(handler) = self.mount_handler.take() {
+            self.state.mount_monitor.disconnect(handler);
         }
     }
 }
@@ -1740,11 +1755,24 @@ impl SidebarState {
 
     fn append_devices(self: &Rc<Self>) {
         let volumes = self.volume_monitor.volumes();
+        let represented = self
+            .volume_monitor
+            .mounts()
+            .into_iter()
+            .chain(volumes.iter().filter_map(|volume| volume.get_mount()))
+            .filter_map(|mount| mount.root().path());
+        let fallback =
+            devices::unrepresented_devices(devices::system_mounted_devices(), represented);
         let mounts: Vec<_> = self
             .volume_monitor
             .mounts()
             .into_iter()
-            .filter(|mount| !mount.is_shadowed() && mount.volume().is_none())
+            .filter(|mount| !mount.is_shadowed())
+            .filter(|mount| {
+                !mount
+                    .volume()
+                    .is_some_and(|volume| volumes.contains(&volume))
+            })
             .filter_map(|mount| {
                 let name = mount.name().to_string();
                 let location = location_for_file(&mount.root())?;
@@ -1754,11 +1782,19 @@ impl SidebarState {
                 Some((name, location, mount))
             })
             .collect();
-        if !volumes.is_empty() || !mounts.is_empty() {
+        if !volumes.is_empty() || !mounts.is_empty() || !fallback.is_empty() {
             self.append_separator();
             self.append_heading("DEVICES");
             for volume in volumes {
                 self.append_volume(volume);
+            }
+            for device in fallback {
+                self.append_device_place(
+                    crate::assets::icons::HARD_DRIVE,
+                    &device.name,
+                    Location::local(device.root),
+                    None,
+                );
             }
             for (name, location, mount) in mounts {
                 if is_smb_location(&location) {
@@ -2133,7 +2169,8 @@ impl SidebarState {
         let sidebar = self.widget.clone();
         let selected_row = row.clone();
         let clicked_volume = volume.clone();
-        row.connect_clicked(move |button| {
+        let mount_view = self.view.clone();
+        row.connect_clicked(move |_| {
             let volume = clicked_volume.clone();
             select_sidebar_row(&sidebar, &selected_row);
             let Some(browser) = weak_browser.upgrade() else {
@@ -2144,28 +2181,7 @@ impl SidebarState {
                 return;
             }
 
-            let window = button.root().and_downcast::<gtk::Window>();
-            let operation = gtk::MountOperation::new(window.as_ref());
-            glib::MainContext::default().spawn_local(async move {
-                match volume
-                    .mount_future(gio::MountMountFlags::NONE, Some(&operation))
-                    .await
-                {
-                    Ok(()) => {
-                        if let Some(mount) = volume.get_mount() {
-                            navigate_to_gio_file(&browser, &mount.root());
-                        }
-                    }
-                    Err(error) => {
-                        let dialog = gtk::AlertDialog::builder()
-                            .modal(true)
-                            .message("Unable to mount volume")
-                            .detail(error.to_string())
-                            .build();
-                        dialog.show(window.as_ref());
-                    }
-                }
-            });
+            mount_view.mount_volume(volume);
         });
         let (mount_can_eject, mount_can_unmount) = volume
             .get_mount()
@@ -2947,6 +2963,7 @@ pub(super) fn build_sidebar(
         browser: view.browser(),
         view,
         volume_monitor,
+        mount_monitor: gio_unix::MountMonitor::get(),
         theme_manager,
         place_order: RefCell::new(place_order),
         pinned_places: Rc::new(RefCell::new(load_pinned_places())),
@@ -3014,6 +3031,12 @@ pub(super) fn build_sidebar(
             state.rebuild();
         }
     }));
+    let weak = Rc::downgrade(&state);
+    let mount_handler = state.mount_monitor.connect_mounts_changed(move |_| {
+        if let Some(state) = weak.upgrade() {
+            state.rebuild();
+        }
+    });
     state.append_static_places();
     state.sync_active_place();
     SidebarView {
@@ -3023,6 +3046,7 @@ pub(super) fn build_sidebar(
         update_area,
         update_label,
         handlers: RefCell::new(handlers),
+        mount_handler: RefCell::new(Some(mount_handler)),
     }
 }
 
