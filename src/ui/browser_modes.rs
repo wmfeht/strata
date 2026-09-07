@@ -19,7 +19,7 @@ use crate::{
     model::{FileEntry, Location, MetadataValue, SortDirection, SortKey},
 };
 
-const LIST_COLUMN_WIDTHS: [i32; 5] = [160, 110, 90, 120, 150];
+const LIST_COLUMN_WIDTHS: [i32; 5] = [160, 160, 90, 120, 150];
 const LIST_COLUMN_MIN_WIDTHS: [i32; 5] = [160, 80, 70, 80, 110];
 const DEFAULT_ICONS_THUMBNAIL_SIZE: i32 = 64;
 const SCROLL_SETTLE_DELAY: std::time::Duration = std::time::Duration::from_millis(80);
