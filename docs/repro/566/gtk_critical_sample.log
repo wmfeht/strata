@@ -1,0 +1,51 @@
+# stderr size: 35113894928 bytes (32.70 GiB)
+# counted gtk_widget_get_parent matches earlier: 147266559
+
+--- head ---
+
+(strata:4519): Gtk-CRITICAL **: 22:50:08.037: gtk_widget_get_parent: assertion 'GTK_IS_WIDGET (widget)' failed
+
+(strata:4519): Gtk-CRITICAL **: 22:50:08.037: gtk_widget_get_parent: assertion 'GTK_IS_WIDGET (widget)' failed
+
+(strata:4519): Gtk-CRITICAL **: 22:50:08.037: gtk_widget_get_parent: assertion 'GTK_IS_WIDGET (widget)' failed
+
+(strata:4519): Gtk-CRITICAL **: 22:50:08.037: gtk_widget_get_parent: assertion 'GTK_IS_WIDGET (widget)' failed
+
+(strata:4519): Gtk-CRITICAL **: 22:50:08.037: gtk_widget_get_parent: assertion 'GTK_IS_WIDGET (widget)' failed
+
+(strata:4519): Gtk-CRITICAL **: 22:50:08.037: gtk_widget_get_parent: assertion 'GTK_IS_WIDGET (widget)' failed
+
+(strata:4519): Gtk-CRITICAL **: 22:50:08.037: gtk_widget_get_parent: assertion 'GTK_IS_WIDGET (widget)' failed
+
+(strata:4519): Gtk-CRITICAL **: 22:50:08.037: gtk_widget_get_parent: assertion 'GTK_IS_WIDGET (widget)' failed
+
+(strata:4519): Gtk-CRITICAL **: 22:50:08.037: gtk_widget_get_parent: assertion 'GTK_IS_WIDGET (widget)' failed
+
+(strata:4519): Gtk-CRITICAL **: 22:50:08.037: gtk_widget_get_parent: assertion 'GTK_IS_WIDGET (widget)' failed
+
+(strata:4519): Gtk-CRITICAL **: 22:50:08.037: gtk_widget_get_parent: assertion 'GTK_IS_WIDGET (widget)' failed
+
+(strata:4519): Gtk-CRITICAL **: 22:50:08.037: gtk_widget_get_parent: assertion 'GTK_IS_WIDGET (widget)' failed
+
+(strata:4519): Gtk-CRITICAL **: 22:50:08.037: gtk_widget_get_parent: assertion 'GTK_IS_WIDGET (widget)' failed
+
+(strata:4519): Gtk-CRITICAL **: 22:50:08.037: gtk_widget_get_parent: assertion 'GTK_IS_WIDGET (widget)' failed
+
+(strata:4519): Gtk-CRITICAL **: 22:50:08.037: gtk_widget_get_parent: assertion 'GTK_IS_WIDGET (widget)' failed
+
+(strata:4519): Gtk-CRITICAL **: 22:50:08.037: gtk_widget_get_parent: assertion 'GTK_IS_WIDGET (widget)' failed
+
+(strata
+--- tail ---
+sertion 'GTK_IS_WIDGET (widget)' failed
+
+(strata:4519): Gtk-CRITICAL **: 22:58:28.859: gtk_widget_get_parent: assertion 'GTK_IS_WIDGET (widget)' failed
+
+(strata:4519): Gtk-CRITICAL **: 22:58:28.859: gtk_widget_get_parent: assertion 'GTK_IS_WIDGET (widget)' failed
+
+(strata:4519): Gtk-CRITICAL **: 22:58:28.859: gtk_widget_get_parent: assertion 'GTK_IS_WIDGET (widget)' failed
+
+(strata:4519): Gtk-CRITICAL **: 22:58:28.859: gtk_widget_get_parent: assertion 'GTK_IS_WIDGET (widget)' failed
+
+(strata:4519): Gtk-CRITICAL **: 22:58:28.859: gtk_widget_get_parent: assertion 'GTK_IS_WIDGET (widget)' failed
+
