@@ -10,9 +10,12 @@ use std::{
 };
 
 use super::{
-    ArchiveError, ArchiveFormat, ArchiveOutcome, ExtractLimits, WriteArchive, always_cancelled,
-    extract_archive, extract_here, extract_limited, validated_archive_path, write_archive,
+    ArchiveError, ArchiveFormat, ArchiveOutcome, ExtractLimits, TarFilter, WriteArchive,
+    always_cancelled, extract_archive, extract_here, extract_limited, validated_archive_path,
+    write_archive, write_tar_filter,
 };
+
+const EXTRACT_ONLY_FILTERS: [TarFilter; 3] = [TarFilter::Xz, TarFilter::Zstd, TarFilter::Bzip2];
 
 /// Nested members extract together; colliding top-level names get a unique suffix.
 #[test]
@@ -289,6 +292,36 @@ fn bomb_path_depth() -> Result<(), Box<dyn Error>> {
         ),
         "{error:?}"
     );
+    Ok(())
+}
+
+/// Extract-only tar filters still restore a file written by libarchive.
+///
+/// RAR cannot be encoded. Single-stream `.gz` / `.xz` / `.zst` / `.bz2` need
+/// libarchive's raw format, which the reader does not enable. Creatable
+/// formats are covered by [`super::compress::formats_round_trip`].
+#[test]
+fn extract_only_round_trip() -> Result<(), Box<dyn Error>> {
+    let root = tempfile::tempdir()?;
+    for filter in EXTRACT_ONLY_FILTERS {
+        let archive = root.path().join(format!("archive.{}", filter.extension()));
+        write_tar_filter(
+            &archive,
+            filter,
+            &[("file.txt", Some(b"contents".as_slice()))],
+        )
+        .map_err(|error| format!("{filter:?} write failed: {error}"))?;
+        let extracted = root.path().join("extracted");
+        let _ = fs::remove_dir_all(&extracted);
+        fs::create_dir(&extracted)?;
+        extract_here(&archive, &extracted)
+            .map_err(|error| format!("{filter:?} extract failed: {error}"))?;
+        assert_eq!(
+            fs::read(extracted.join("file.txt"))?,
+            b"contents",
+            "{filter:?} should extract the file contents"
+        );
+    }
     Ok(())
 }
 

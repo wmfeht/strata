@@ -478,14 +478,6 @@ impl ViewState {
             BrowserEvent::RestorationFinished => self.dismiss_file_operation_progress(),
             BrowserEvent::OperationFailed { message } => {
                 self.dismiss_file_operation_progress();
-                let retry = self.pending_extract_retry.take();
-                if let Some((entry, dest)) = retry {
-                    let lower = message.to_lowercase();
-                    if lower.contains("password") || lower.contains("encrypt") {
-                        self.show_extract_password_dialog(entry, dest);
-                        return;
-                    }
-                }
                 show_error_dialog(&self.overlay, "Unable to complete operation", message);
             }
             BrowserEvent::OperationCompletedWithErrors {
@@ -568,10 +560,10 @@ impl ViewState {
                     ),
                 }
             }
-            BrowserEvent::ArchiveStarted { total } => {
+            BrowserEvent::ArchiveStarted => {
                 let browser = self.browser.clone();
                 self.show_file_operation_progress(
-                    *total,
+                    0,
                     crate::assets::icons::FILE_ARCHIVE,
                     "Working",
                     "Cancelling will not undo completed changes",
@@ -581,9 +573,15 @@ impl ViewState {
             BrowserEvent::ArchiveProgress { completed, total } => {
                 self.update_archive_progress(*completed, *total);
             }
+            BrowserEvent::ArchivePasswordRequired {
+                archive,
+                destination,
+            } => {
+                self.dismiss_file_operation_progress();
+                self.show_extract_password_dialog(archive.clone(), destination.clone());
+            }
             BrowserEvent::ArchiveCompleted { select_name, .. } => {
                 self.dismiss_file_operation_progress();
-                self.pending_extract_retry.replace(None);
                 if !select_name.is_empty() {
                     self.pending_select.borrow_mut().push(select_name.clone());
                 }

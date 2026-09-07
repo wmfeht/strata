@@ -15,9 +15,9 @@ use std::{
 use gtk::glib;
 
 use super::{
-    ArchiveError, ArchiveFormat, CompressRequest, OperationEvent, OperationRequestId,
+    ArchiveAction, ArchiveError, ArchiveFormat, ArchiveRequest, OperationEvent, OperationRequestId,
     TransferConflict, compress_request, compression_stages, extract_here, extract_with_password,
-    file_entry, lock_main_context, never_cancelled, process_umask, run_compression, write_fixture,
+    lock_main_context, never_cancelled, process_umask, run_archive, run_compression, write_fixture,
     write_staged_archive,
 };
 use crate::model::Location;
@@ -83,6 +83,56 @@ fn password_round_trip() -> Result<(), Box<dyn Error>> {
         );
     }
     Ok(())
+}
+
+/// Traditional ZipCrypto without a password asks the UI to prompt rather than failing.
+///
+/// libarchive's write passphrase does not emit ZipCrypto, so this uses a
+/// `zip -P` fixture instead of [`write_fixture`].
+#[test]
+fn encrypted_without_password() -> Result<(), Box<dyn Error>> {
+    let _serial = lock_main_context()?;
+    let root = tempfile::tempdir()?;
+    let archive = root.path().join("secret.zip");
+    fs::write(
+        &archive,
+        decode_hex(
+            "504b03040a0009000000dc88275de5e8a25c12000000060000000a001c007365637265742e747874\
+             555409000380359f6a80359f6a75780b000104e803000004e8030000db26c604d38904646ebbc730\
+             24d7950e708b504b0708e5e8a25c1200000006000000504b01021e030a0009000000dc88275de5e8\
+             a25c12000000060000000a0018000000000001000000a481000000007365637265742e7478745554\
+             05000380359f6a75780b000104e803000004e8030000504b05060000000001000100500000006600\
+             00000000",
+        )?,
+    )?;
+    let destination = root.path().join("extracted");
+    fs::create_dir(&destination)?;
+    let events = run_archive(ArchiveRequest {
+        id: OperationRequestId(1),
+        destination: Location::local(&destination),
+        password: None,
+        action: ArchiveAction::Extract {
+            archive: Location::local(&archive),
+        },
+    });
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, OperationEvent::PasswordRequired { .. })),
+        "events should include PasswordRequired, got {events:?}"
+    );
+    Ok(())
+}
+
+fn decode_hex(hex: &str) -> Result<Vec<u8>, Box<dyn Error>> {
+    let hex: String = hex.chars().filter(|ch| !ch.is_whitespace()).collect();
+    if !hex.len().is_multiple_of(2) {
+        return Err("hex fixture must have an even length".into());
+    }
+    (0..hex.len())
+        .step_by(2)
+        .map(|index| u8::from_str_radix(&hex[index..index + 2], 16).map_err(Into::into))
+        .collect()
 }
 
 /// ZIP and TAR store a symbolic link as a link, not as a copy of the target.
@@ -198,7 +248,7 @@ fn conflict_fail_and_replace() -> Result<(), Box<dyn Error>> {
     assert!(
         replaced
             .iter()
-            .any(|event| matches!(event, OperationEvent::Compressed { .. }))
+            .any(|event| matches!(event, OperationEvent::Archived { .. }))
     );
     let extracted = destination.join("extracted");
     fs::create_dir(&extracted)?;
@@ -221,14 +271,16 @@ fn failure_preserves_existing() -> Result<(), Box<dyn Error>> {
     fs::create_dir(&destination)?;
     fs::write(&archive, b"original")?;
 
-    let events = run_compression(CompressRequest {
+    let events = run_compression(ArchiveRequest {
         id: OperationRequestId(1),
-        entries: vec![file_entry(&root.path().join("missing.txt"))],
         destination: Location::local(&destination),
-        archive_name: "existing".to_owned(),
-        conflict: TransferConflict::ReplaceExisting,
-        format: ArchiveFormat::Zip,
         password: None,
+        action: ArchiveAction::Compress {
+            sources: vec![Location::local(root.path().join("missing.txt"))],
+            archive_name: "existing".to_owned(),
+            format: ArchiveFormat::Zip,
+            conflict: TransferConflict::ReplaceExisting,
+        },
     });
     assert!(
         events

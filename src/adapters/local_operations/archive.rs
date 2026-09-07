@@ -10,13 +10,11 @@
 //! absolute paths, `..`, and Windows drive prefixes. Zip-bomb limits bound
 //! written bytes, member count, and path depth.
 //!
-//! # Main entry points
+//! # Main entry point
 //!
-//! - [`compress`] — start a cancellable compression
-//! - [`extract`] — start a cancellable extraction
-//!
-//! Both spawn work on the default [`glib::MainContext`] and return a
-//! [`LoadHandle`] that sets a cancellation flag when dropped.
+//! [`archive`] starts a cancellable compress or extract. Work runs on the
+//! default [`glib::MainContext`] and the returned [`LoadHandle`] sets a
+//! cancellation flag when dropped.
 //!
 //! [`LocalOperationProvider`]: super::LocalOperationProvider
 
@@ -53,7 +51,7 @@ use super::{local_directory_children, open_local_child_directory, open_local_par
 use crate::{
     model::Location,
     services::{
-        ArchiveFormat, CancelledOperation, CompressRequest, ExtractRequest, LoadHandle,
+        ArchiveAction, ArchiveFormat, ArchiveRequest, CancelledOperation, LoadHandle,
         OperationEvent, OperationRequestId, TransferConflict, validate_basename,
     },
 };
@@ -150,16 +148,27 @@ fn process_umask() -> u32 {
         .unwrap_or(0o022)
 }
 
-/// Compresses the entries in `request` into a new local archive.
+/// Starts a cancellable compress or extract from `request`.
 ///
-/// Validates that the destination is a local path and that
-/// [`CompressRequest::archive_name`] passes [`validate_basename`], then writes
-/// `{name}.{extension}` through [`write_staged_archive`]. Progress is polled
-/// every 100 ms via [`archive_progress_timer`]. Returns a [`LoadHandle`] that
-/// cancels in-flight work when dropped.
+/// Dispatches on [`ArchiveAction`]. Returns a [`LoadHandle`] that cancels
+/// in-flight work when dropped.
+pub(super) fn archive(request: ArchiveRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
+    match &request.action {
+        ArchiveAction::Compress { .. } => compress(request, emit),
+        ArchiveAction::Extract { .. } => extract(request, emit),
+    }
+}
+
+/// Compresses the sources in `request` into a new local archive.
+///
+/// Validates that the destination is a local path and that the archive stem
+/// passes [`validate_basename`], then writes the published filename through
+/// [`write_staged_archive`]. Progress is polled every 100 ms via
+/// [`archive_progress_timer`]. Returns a [`LoadHandle`] that cancels in-flight
+/// work when dropped.
 ///
 /// Emits [`ArchiveStarted`] immediately, [`ArchiveProgress`] while running,
-/// then [`Compressed`], [`Failed`], or [`Cancelled`] depending on the outcome.
+/// then [`Archived`], [`Failed`], or [`Cancelled`] depending on the outcome.
 ///
 /// # Concurrency
 ///
@@ -168,19 +177,28 @@ fn process_umask() -> u32 {
 ///
 /// [`ArchiveStarted`]: OperationEvent::ArchiveStarted
 /// [`ArchiveProgress`]: OperationEvent::ArchiveProgress
-/// [`Compressed`]: OperationEvent::Compressed
+/// [`Archived`]: OperationEvent::Archived
 /// [`Failed`]: OperationEvent::Failed
 /// [`Cancelled`]: OperationEvent::Cancelled
-pub(super) fn compress(request: CompressRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
+fn compress(request: ArchiveRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
     let cancelled = Arc::new(AtomicBool::new(false));
     let task_cancelled = cancelled.clone();
     let work_cancelled = cancelled.clone();
     let destination = request.destination.clone();
-    let source_locations = request
-        .entries
-        .iter()
-        .map(|entry| entry.location.clone())
-        .collect::<Vec<_>>();
+    let ArchiveAction::Compress {
+        sources,
+        archive_name,
+        format,
+        conflict,
+    } = request.action
+    else {
+        emit(OperationEvent::Failed {
+            request_id: request.id,
+            message: "Internal error: compression received a non-compress request".to_owned(),
+        });
+        return LoadHandle::new(|| {});
+    };
+    let source_locations = sources.clone();
     let _task = glib::MainContext::default().spawn_local(async move {
         let Some(dest_dir) = request.destination.native_path().map(Path::to_path_buf) else {
             emit(OperationEvent::Failed {
@@ -189,19 +207,18 @@ pub(super) fn compress(request: CompressRequest, emit: Rc<dyn Fn(OperationEvent)
             });
             return;
         };
-        if let Err(message) = validate_basename(&request.archive_name) {
+        if let Err(message) = validate_basename(&archive_name) {
             emit(OperationEvent::Failed {
                 request_id: request.id,
                 message: message.to_owned(),
             });
             return;
         }
-        let archive_name = format!("{}.{}", request.archive_name, request.format.extension());
+        let archive_name = format.archive_filename(&archive_name);
         let archive_path = dest_dir.join(&archive_name);
-        let entries: Vec<std::path::PathBuf> = request
-            .entries
+        let entries: Vec<std::path::PathBuf> = sources
             .iter()
-            .filter_map(|e| e.location.native_path().map(Path::to_path_buf))
+            .filter_map(|location| location.native_path().map(Path::to_path_buf))
             .collect();
         if entries.is_empty() {
             emit(OperationEvent::Failed {
@@ -214,18 +231,16 @@ pub(super) fn compress(request: CompressRequest, emit: Rc<dyn Fn(OperationEvent)
         let progress = Arc::new(AtomicUsize::new(0));
         emit(OperationEvent::ArchiveStarted {
             request_id: request.id,
-            total: 0,
         });
         let timer_id =
             archive_progress_timer(request.id, &progress, &total, &task_cancelled, &emit);
-        let format = request.format;
         let password = request.password.clone();
         let work_progress = progress.clone();
         let work_total = total.clone();
         let result = write_staged_archive(
             &dest_dir,
             &archive_path,
-            request.conflict,
+            conflict,
             &task_cancelled,
             move |file| {
                 let count = count_archive_files(&entries, &work_cancelled)?;
@@ -243,9 +258,9 @@ pub(super) fn compress(request: CompressRequest, emit: Rc<dyn Fn(OperationEvent)
         .await;
         timer_id.remove();
         match result {
-            Ok(()) => emit(OperationEvent::Compressed {
+            Ok(()) => emit(OperationEvent::Archived {
                 request_id: request.id,
-                archive_name: archive_name.clone(),
+                select_name: archive_name,
             }),
             Err(ArchiveError::Cancelled) => emit(cancelled_archive_event(
                 request.id,
@@ -268,32 +283,39 @@ pub(super) fn compress(request: CompressRequest, emit: Rc<dyn Fn(OperationEvent)
 /// Extracts the archive in `request` into a local destination directory.
 ///
 /// Requires both the archive and destination to be local paths. Format is
-/// inferred from [`FileEntry::display_name`] via [`ArchiveFormat::from_extension`].
-/// Returns a [`LoadHandle`] that cancels in-flight work when dropped.
+/// detected by libarchive from the file bytes, not from the name. Returns a
+/// [`LoadHandle`] that cancels in-flight work when dropped.
 ///
 /// Emits [`ArchiveStarted`] immediately, [`ArchiveProgress`] while running,
-/// then [`Extracted`], [`Failed`], or [`Cancelled`]. A cancel after some
-/// members have been written reports completed, failed, and not-attempted
-/// locations through [`CancelledOperation`].
+/// then [`Archived`], [`PasswordRequired`], [`Failed`], or [`Cancelled`]. A
+/// cancel after some members have been written reports completed, failed, and
+/// not-attempted locations through [`CancelledOperation`].
 ///
 /// # Concurrency
 ///
 /// Runs on the default [`glib::MainContext`]. Decoding happens on a worker
 /// thread via [`gio::spawn_blocking`].
 ///
-/// [`FileEntry::display_name`]: crate::model::FileEntry::display_name
 /// [`ArchiveStarted`]: OperationEvent::ArchiveStarted
 /// [`ArchiveProgress`]: OperationEvent::ArchiveProgress
-/// [`Extracted`]: OperationEvent::Extracted
+/// [`Archived`]: OperationEvent::Archived
+/// [`PasswordRequired`]: OperationEvent::PasswordRequired
 /// [`Failed`]: OperationEvent::Failed
 /// [`Cancelled`]: OperationEvent::Cancelled
-pub(super) fn extract(request: ExtractRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
+fn extract(request: ArchiveRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
     let cancelled = Arc::new(AtomicBool::new(false));
     let task_cancelled = cancelled.clone();
     let work_cancelled = cancelled.clone();
     let destination = request.destination.clone();
+    let ArchiveAction::Extract { archive } = request.action else {
+        emit(OperationEvent::Failed {
+            request_id: request.id,
+            message: "Internal error: extraction received a non-extract request".to_owned(),
+        });
+        return LoadHandle::new(|| {});
+    };
     let _task = glib::MainContext::default().spawn_local(async move {
-        let Some(archive_path) = request.entry.location.native_path().map(Path::to_path_buf) else {
+        let Some(archive_path) = archive.native_path().map(Path::to_path_buf) else {
             emit(OperationEvent::Failed {
                 request_id: request.id,
                 message: "Archive must be a local file".to_owned(),
@@ -307,24 +329,16 @@ pub(super) fn extract(request: ExtractRequest, emit: Rc<dyn Fn(OperationEvent)>)
             });
             return;
         };
-        let format = ArchiveFormat::from_extension(&request.entry.display_name);
         let password = request.password.clone();
-        let display_name = request.entry.display_name.clone();
         let progress = Arc::new(AtomicUsize::new(0));
         let total = Arc::new(AtomicUsize::new(0));
         emit(OperationEvent::ArchiveStarted {
             request_id: request.id,
-            total: 0,
         });
         let timer_id =
             archive_progress_timer(request.id, &progress, &total, &task_cancelled, &emit);
         let work_progress = progress.clone();
         let result = gio::spawn_blocking(move || {
-            if format.is_none() {
-                return Err(archive_failed(format!(
-                    "Unsupported archive format: {display_name}"
-                )));
-            }
             extract_archive(
                 &archive_path,
                 &dest_dir,
@@ -336,9 +350,9 @@ pub(super) fn extract(request: ExtractRequest, emit: Rc<dyn Fn(OperationEvent)>)
         .await;
         timer_id.remove();
         match result {
-            Ok(Ok(ArchiveOutcome::Completed(first_name))) => emit(OperationEvent::Extracted {
+            Ok(Ok(ArchiveOutcome::Completed(first_name))) => emit(OperationEvent::Archived {
                 request_id: request.id,
-                first_name,
+                select_name: first_name.unwrap_or_default(),
             }),
             Ok(Ok(ArchiveOutcome::Cancelled {
                 completed,
@@ -358,6 +372,13 @@ pub(super) fn extract(request: ExtractRequest, emit: Rc<dyn Fn(OperationEvent)>)
                 Vec::new(),
                 Vec::new(),
             )),
+            Ok(Err(ArchiveError::Failed(error))) if password_error(&error) => {
+                emit(OperationEvent::PasswordRequired {
+                    request_id: request.id,
+                    archive,
+                    destination,
+                });
+            }
             Ok(Err(ArchiveError::Failed(error))) => emit(OperationEvent::Failed {
                 request_id: request.id,
                 message: error,
@@ -371,6 +392,11 @@ pub(super) fn extract(request: ExtractRequest, emit: Rc<dyn Fn(OperationEvent)>)
     LoadHandle::new(move || {
         cancelled.store(true, Ordering::Relaxed);
     })
+}
+
+fn password_error(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("password") || lower.contains("passphrase") || lower.contains("encrypt")
 }
 
 /// An opened compression source, re-read from disk relative to its parent

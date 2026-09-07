@@ -4,8 +4,8 @@
 //!
 //! These methods live on [`ViewState`] and start work through the shared
 //! [`crate::app::Browser`] controller; they must not create a separate archive
-//! pipeline. Password-capable extracts record a retry so a later failure can
-//! reopen [`ViewState::show_extract_password_dialog`].
+//! pipeline. A [`crate::app::BrowserEvent::ArchivePasswordRequired`] event
+//! reopens [`ViewState::show_extract_password_dialog`].
 //!
 //! # Entry points
 //!
@@ -16,7 +16,7 @@
 
 use crate::adapters::gio_file_for_location;
 use crate::model::{FileEntry, Location};
-use crate::services::{ArchiveFormat, TransferConflict, validate_basename};
+use crate::services::{ArchiveAction, ArchiveFormat, TransferConflict, validate_basename};
 use crate::ui::browser::ViewState;
 use crate::ui::browser::destination::{
     folder_input_path, resolve_destination_path, setup_transfer_search,
@@ -147,15 +147,21 @@ impl ViewState {
         format: ArchiveFormat,
         password: Option<String>,
     ) {
-        let final_name = format!("{archive_name}.{}", format.extension());
+        let final_name = format.archive_filename(&archive_name);
+        let sources = entries
+            .iter()
+            .map(|entry| entry.location.clone())
+            .collect::<Vec<_>>();
         if !archive_has_collision(&destination, &final_name) {
-            self.browser.compress(
-                entries,
+            self.browser.archive(
                 destination,
-                archive_name,
-                TransferConflict::FailIfExists,
-                format,
                 password,
+                ArchiveAction::Compress {
+                    sources,
+                    archive_name,
+                    format,
+                    conflict: TransferConflict::FailIfExists,
+                },
             );
             return;
         }
@@ -205,13 +211,15 @@ impl ViewState {
         let browser = self.browser.clone();
         replace.connect_clicked(move |_| {
             dismiss_modal_layer(&replaced_layer, &replaced_overlay, replaced_root.as_ref());
-            browser.compress(
-                entries.clone(),
+            browser.archive(
                 destination.clone(),
-                archive_name.clone(),
-                TransferConflict::ReplaceExisting,
-                format,
                 password.clone(),
+                ArchiveAction::Compress {
+                    sources: sources.clone(),
+                    archive_name: archive_name.clone(),
+                    format,
+                    conflict: TransferConflict::ReplaceExisting,
+                },
             );
         });
 
@@ -416,10 +424,10 @@ impl ViewState {
     /// Extracts `entry` into its parent directory ("Extract here").
     ///
     /// Returns immediately when the archive is not a native path. Archives
-    /// without a parent show an error instead of extracting. Password-capable
-    /// formats record a retry so a later password or encryption failure can
-    /// reopen [`Self::show_extract_password_dialog`]. The first attempt is sent
-    /// without a password.
+    /// without a parent show an error instead of extracting. The first attempt
+    /// is sent without a password; a later
+    /// [`crate::app::BrowserEvent::ArchivePasswordRequired`] reopens
+    /// [`Self::show_extract_password_dialog`].
     pub(super) fn extract_entry(self: &Rc<Self>, entry: FileEntry) {
         if entry.location.native_path().is_none() {
             return;
@@ -432,12 +440,13 @@ impl ViewState {
             );
             return;
         };
-        let format = ArchiveFormat::from_extension(&entry.display_name);
-        if format.map(|f| f.supports_password()).unwrap_or(false) {
-            self.pending_extract_retry
-                .replace(Some((entry.clone(), parent.clone())));
-        }
-        self.browser.extract(entry, parent, None);
+        self.browser.archive(
+            parent,
+            None,
+            ArchiveAction::Extract {
+                archive: entry.location,
+            },
+        );
     }
 
     /// Opens the "Extract to" folder picker for `entry`.
@@ -445,7 +454,8 @@ impl ViewState {
     /// Returns immediately when the archive is not a native path. Confirm
     /// creates the typed destination if it does not exist, then extracts into
     /// that folder and navigates there when the operation finishes. Password
-    /// retry is recorded the same way as [`Self::extract_entry`].
+    /// retry uses [`crate::app::BrowserEvent::ArchivePasswordRequired`], the
+    /// same as [`Self::extract_entry`].
     pub(super) fn show_extract_to_dialog(self: &Rc<Self>, entry: FileEntry) {
         if entry.location.native_path().is_none() {
             return;
@@ -532,16 +542,14 @@ impl ViewState {
                 return;
             }
             let dest = Location::local(path);
-            let format = ArchiveFormat::from_extension(&extract_entry.display_name);
-            if format.map(|f| f.supports_password()).unwrap_or(false) {
-                extract_state
-                    .pending_extract_retry
-                    .replace(Some((extract_entry.clone(), dest.clone())));
-            }
             extract_state.pending_navigate.replace(Some(dest.clone()));
-            extract_state
-                .browser
-                .extract(extract_entry.clone(), dest, None);
+            extract_state.browser.archive(
+                dest,
+                None,
+                ArchiveAction::Extract {
+                    archive: extract_entry.location.clone(),
+                },
+            );
             dismiss_for_confirm();
         });
 
@@ -551,20 +559,23 @@ impl ViewState {
 
     /// Prompts for a password after a password-capable extract failed.
     ///
-    /// Shown from operation-failure handling when the error mentions a password
-    /// or encryption. An empty field retries `entry` into `destination` with no
-    /// password.
+    /// Shown when extract reports [`crate::app::BrowserEvent::ArchivePasswordRequired`].
+    /// An empty field retries `archive` into `destination` with no password.
     pub(super) fn show_extract_password_dialog(
         self: &Rc<Self>,
-        entry: FileEntry,
+        archive: Location,
         destination: Location,
     ) {
+        let subtitle = archive
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| compact_display_path(&archive));
         let password_entry = form_password_entry();
         password_entry.set_show_peek_icon(true);
         let dirty_password = password_entry.clone();
         let (body, confirm, dismiss) = self.build_archive_modal(
             "Extract",
-            &entry.display_name,
+            &subtitle,
             "Extract",
             Some(Rc::new(move || !dirty_password.text().is_empty())),
         );
@@ -580,7 +591,13 @@ impl ViewState {
             let pw = password_for_confirm.text().to_string();
             let password = if pw.is_empty() { None } else { Some(pw) };
             dismiss_for_confirm();
-            browser.extract(entry.clone(), destination.clone(), password);
+            browser.archive(
+                destination.clone(),
+                password,
+                ArchiveAction::Extract {
+                    archive: archive.clone(),
+                },
+            );
         });
         submit_on_enter(&body, &confirm);
         password_entry.grab_focus();

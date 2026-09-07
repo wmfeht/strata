@@ -26,10 +26,10 @@ use crate::{
     adapters::{gio_file_for_location, location_for_file},
     model::{FileEntry, Location},
     services::{
-        CancelledOperation, CompressRequest, CreateDirectoryRequest, CreateFileRequest,
-        DeleteRequest, ExtractRequest, LoadHandle, OperationEvent, OperationProvider,
-        OperationRequestId, PasteRequest, RenameRequest, RestoreRequest, RestoreSource,
-        TransferConflict, UndoCopyRequest, UndoMoveRequest, validate_basename,
+        ArchiveRequest, CancelledOperation, CreateDirectoryRequest, CreateFileRequest,
+        DeleteRequest, LoadHandle, OperationEvent, OperationProvider, OperationRequestId,
+        PasteRequest, RenameRequest, RestoreRequest, RestoreSource, TransferConflict,
+        UndoCopyRequest, UndoMoveRequest, validate_basename,
     },
 };
 
@@ -2832,11 +2832,7 @@ impl OperationProvider for LocalOperationProvider {
         cancellation_handle(cancellable)
     }
 
-    fn compress(&self, request: CompressRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
-        archive::compress(request, emit)
-    }
-
-    fn extract(&self, request: ExtractRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
-        archive::extract(request, emit)
+    fn archive(&self, request: ArchiveRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
+        archive::archive(request, emit)
     }
 }

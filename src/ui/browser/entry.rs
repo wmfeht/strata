@@ -3,6 +3,7 @@
 use crate::model::{EntryKind, FileEntry};
 use crate::services::{
     PreviewContent, content_family, has_plain_text_extension, is_extensionless_dotfile,
+    is_extractable_archive,
 };
 use gtk::gio;
 use gtk::prelude::*;
@@ -181,6 +182,9 @@ pub(super) fn entry_matches(value: &str, show_hidden: bool, query: &str) -> bool
 }
 
 pub(super) fn icon_for_name(name: &str) -> &'static str {
+    if is_extractable_archive(name) {
+        return crate::assets::icons::FILE_ARCHIVE;
+    }
     let extension = name
         .rsplit_once('.')
         .map(|(_, extension)| extension.to_ascii_lowercase());
@@ -193,9 +197,6 @@ pub(super) fn icon_for_name(name: &str) -> &'static str {
             | "x3f",
         ) => crate::assets::icons::PICTURES,
         Some("mp4" | "mkv" | "webm" | "mov" | "avi" | "m4v") => crate::assets::icons::VIDEOS,
-        Some("zip" | "tar" | "gz" | "bz2" | "xz" | "7z" | "rar" | "zst") => {
-            crate::assets::icons::FILE_ARCHIVE
-        }
         Some(
             "rs" | "c" | "h" | "cpp" | "go" | "py" | "rb" | "java" | "js" | "jsx" | "ts" | "tsx"
             | "lua" | "php" | "html" | "css" | "scss" | "json",

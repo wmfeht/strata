@@ -163,7 +163,6 @@ pub(super) struct ViewState {
     /// Set when the pending selection came from a properties request, so the
     /// dialog opens once the entry it describes is actually loaded.
     pending_select_properties: Cell<bool>,
-    pending_extract_retry: RefCell<Option<(FileEntry, Location)>>,
     /// The entries a just-dispatched, non-permanent delete requested,
     /// snapshotted so a `CompletedWithErrors` response naming entries that
     /// failed only because the location doesn't support Trash can offer a
@@ -344,7 +343,6 @@ impl BrowserView {
             pending_select: RefCell::new(Vec::new()),
             pending_transfer_selection: RefCell::new(None),
             pending_select_properties: Cell::new(false),
-            pending_extract_retry: RefCell::new(None),
             pending_delete_entries: RefCell::new(Vec::new()),
             pending_navigate: RefCell::new(None),
             pending_location_credentials: RefCell::new(None),

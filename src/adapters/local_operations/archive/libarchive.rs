@@ -22,6 +22,34 @@ use libarchive2::{
 
 use crate::services::ArchiveFormat;
 
+/// Tar filters that tests can encode but the compress dialog cannot create.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug)]
+pub(super) enum TarFilter {
+    Xz,
+    Zstd,
+    Bzip2,
+}
+
+#[cfg(test)]
+impl TarFilter {
+    pub(super) fn extension(self) -> &'static str {
+        match self {
+            Self::Xz => "tar.xz",
+            Self::Zstd => "tar.zst",
+            Self::Bzip2 => "tar.bz2",
+        }
+    }
+
+    fn compression(self) -> CompressionFormat {
+        match self {
+            Self::Xz => CompressionFormat::Xz,
+            Self::Zstd => CompressionFormat::Zstd,
+            Self::Bzip2 => CompressionFormat::Bzip2,
+        }
+    }
+}
+
 /// Kind of archive member reported by libarchive.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum MemberKind {
@@ -170,12 +198,31 @@ impl WriteArchive {
             ArchiveFormat::Tar => builder
                 .format(LibFormat::TarPaxRestricted)
                 .compression(CompressionFormat::None),
-            _ => return Err("Compression does not support this format".to_owned()),
         };
         if let Some(password) = password {
             builder = builder.passphrase(password);
         }
         let inner = builder.open_fd(file.as_raw_fd()).map_err(crate_error)?;
+        Ok(Self {
+            inner: Some(inner),
+            _file: file,
+        })
+    }
+
+    /// Prepares a writer for a tar filter that tests can extract but the
+    /// compress dialog cannot create.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the writer cannot be allocated, an option is
+    /// rejected, or the file descriptor cannot be used.
+    #[cfg(test)]
+    pub(super) fn create_tar_filter(file: File, filter: TarFilter) -> Result<Self, String> {
+        let inner = LibWriteArchive::new()
+            .format(LibFormat::TarPaxRestricted)
+            .compression(filter.compression())
+            .open_fd(file.as_raw_fd())
+            .map_err(crate_error)?;
         Ok(Self {
             inner: Some(inner),
             _file: file,

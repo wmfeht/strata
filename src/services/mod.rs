@@ -18,10 +18,11 @@ pub use file_source::{
 pub(crate) use install_source::ensure_self_managed;
 pub use install_source::{InstallSource, ManagedInstall};
 pub use operations::{
-    ArchiveFormat, CancelledOperation, CompressRequest, CreateDirectoryRequest, CreateFileRequest,
-    DeleteRequest, ExtractRequest, MoveRecord, OperationEvent, OperationProvider,
+    ArchiveAction, ArchiveFormat, ArchiveRequest, CancelledOperation, CreateDirectoryRequest,
+    CreateFileRequest, DeleteRequest, MoveRecord, OperationEvent, OperationProvider,
     OperationRequestId, PasteItem, PasteRequest, RenameRequest, RestoreRequest, RestoreSource,
-    TransferConflict, UndoCopyRequest, UndoMoveItem, UndoMoveRequest, validate_basename,
+    TransferConflict, UndoCopyRequest, UndoMoveItem, UndoMoveRequest, is_extractable_archive,
+    validate_basename,
 };
 pub use preview::{
     Preview, PreviewContent, PreviewEvent, PreviewProvider, PreviewRequest, PreviewRequestId,

@@ -111,20 +111,16 @@ pub struct RestoreRequest {
     pub source: RestoreSource,
 }
 
+/// Archive format this app can create.
+///
+/// Extraction recognizes a wider set of suffixes via [`is_extractable_archive`];
+/// libarchive then decides whether the bytes are a valid archive.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ArchiveFormat {
     Zip,
     SevenZ,
     TarGz,
     Tar,
-    TarXz,
-    TarZst,
-    TarBz2,
-    Gzip,
-    Xz,
-    Zstd,
-    Bzip2,
-    Rar,
 }
 
 impl ArchiveFormat {
@@ -134,71 +130,79 @@ impl ArchiveFormat {
             Self::SevenZ => "7z",
             Self::TarGz => "tar.gz",
             Self::Tar => "tar",
-            Self::TarXz => "tar.xz",
-            Self::TarZst => "tar.zst",
-            Self::TarBz2 => "tar.bz2",
-            Self::Gzip => "gz",
-            Self::Xz => "xz",
-            Self::Zstd => "zst",
-            Self::Bzip2 => "bz2",
-            Self::Rar => "rar",
         }
     }
 
+    /// Final basename written for `stem`, including this format's extension.
+    pub fn archive_filename(self, stem: &str) -> String {
+        format!("{stem}.{}", self.extension())
+    }
+
     pub fn supports_password(self) -> bool {
-        matches!(self, Self::Zip | Self::SevenZ | Self::Rar)
+        matches!(self, Self::Zip | Self::SevenZ)
     }
 
     pub fn from_extension(name: &str) -> Option<Self> {
         let lower = name.to_ascii_lowercase();
         if lower.ends_with(".tar.gz") || lower.ends_with(".tgz") {
             Some(Self::TarGz)
-        } else if lower.ends_with(".tar.xz") || lower.ends_with(".txz") {
-            Some(Self::TarXz)
-        } else if lower.ends_with(".tar.zst") || lower.ends_with(".tzst") {
-            Some(Self::TarZst)
-        } else if lower.ends_with(".tar.bz2") || lower.ends_with(".tbz2") || lower.ends_with(".tbz")
-        {
-            Some(Self::TarBz2)
         } else if lower.ends_with(".tar") {
             Some(Self::Tar)
         } else if lower.ends_with(".zip") {
             Some(Self::Zip)
         } else if lower.ends_with(".7z") {
             Some(Self::SevenZ)
-        } else if lower.ends_with(".rar") {
-            Some(Self::Rar)
-        } else if lower.ends_with(".gz") {
-            Some(Self::Gzip)
-        } else if lower.ends_with(".xz") {
-            Some(Self::Xz)
-        } else if lower.ends_with(".zst") {
-            Some(Self::Zstd)
-        } else if lower.ends_with(".bz2") {
-            Some(Self::Bzip2)
         } else {
             None
         }
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct CompressRequest {
-    pub id: OperationRequestId,
-    pub entries: Vec<FileEntry>,
-    pub destination: Location,
-    pub archive_name: String,
-    pub conflict: TransferConflict,
-    pub format: ArchiveFormat,
-    pub password: Option<String>,
+const EXTRACT_ONLY_SUFFIXES: &[&str] = &[
+    ".tar.xz", ".txz", ".tar.zst", ".tzst", ".tar.bz2", ".tbz2", ".tbz", ".rar", ".gz", ".xz",
+    ".zst", ".bz2",
+];
+
+/// Whether `name` looks like an archive this app can extract.
+///
+/// Recognition is by suffix, including compound suffixes such as `.tar.gz`.
+/// Creatable formats go through [`ArchiveFormat::from_extension`]; extract-only
+/// suffixes are listed separately. libarchive still decides whether the bytes
+/// are a valid archive.
+pub fn is_extractable_archive(name: &str) -> bool {
+    if ArchiveFormat::from_extension(name).is_some() {
+        return true;
+    }
+    let lower = name.to_ascii_lowercase();
+    EXTRACT_ONLY_SUFFIXES
+        .iter()
+        .any(|suffix| lower.ends_with(suffix))
 }
 
+/// Compress or extract work submitted through [`OperationProvider::archive`].
 #[derive(Clone, Debug)]
-pub struct ExtractRequest {
+pub enum ArchiveAction {
+    /// Create `{archive_name}.{extension}` in the request destination.
+    Compress {
+        /// Local paths to include in the archive.
+        sources: Vec<Location>,
+        /// Basename without the format extension.
+        archive_name: String,
+        format: ArchiveFormat,
+        conflict: TransferConflict,
+    },
+    /// Unpack `archive` into the request destination.
+    Extract { archive: Location },
+}
+
+/// Compress or extract request sent to [`OperationProvider::archive`].
+#[derive(Clone, Debug)]
+pub struct ArchiveRequest {
     pub id: OperationRequestId,
-    pub entry: FileEntry,
+    /// Directory that receives the archive or extracted members.
     pub destination: Location,
     pub password: Option<String>,
+    pub action: ArchiveAction,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -276,17 +280,17 @@ pub enum OperationEvent {
         request_id: OperationRequestId,
         message: String,
     },
-    Compressed {
+    Archived {
         request_id: OperationRequestId,
-        archive_name: String,
+        select_name: String,
     },
-    Extracted {
+    PasswordRequired {
         request_id: OperationRequestId,
-        first_name: Option<String>,
+        archive: Location,
+        destination: Location,
     },
     ArchiveStarted {
         request_id: OperationRequestId,
-        total: usize,
     },
     ArchiveProgress {
         request_id: OperationRequestId,
@@ -313,6 +317,5 @@ pub trait OperationProvider {
     fn undo_copy(&self, request: UndoCopyRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle;
     fn delete(&self, request: DeleteRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle;
     fn restore(&self, request: RestoreRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle;
-    fn compress(&self, request: CompressRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle;
-    fn extract(&self, request: ExtractRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle;
+    fn archive(&self, request: ArchiveRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle;
 }

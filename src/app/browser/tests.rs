@@ -6,8 +6,8 @@ use super::*;
 use crate::{
     model::{EntryKind, MetadataValue},
     services::{
-        CancelledOperation, CompressRequest, ExtractRequest, LoadHandle, MetadataOutcome,
-        MetadataRequest, MetadataUpdate, UndoCopyRequest, UndoMoveRequest,
+        ArchiveAction, ArchiveRequest, CancelledOperation, LoadHandle, MetadataOutcome,
+        MetadataRequest, MetadataUpdate, TransferConflict, UndoCopyRequest, UndoMoveRequest,
     },
 };
 
@@ -687,18 +687,18 @@ impl OperationProvider for ImmediateOperationProvider {
         LoadHandle::new(|| {})
     }
 
-    fn compress(&self, request: CompressRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
-        emit(OperationEvent::Compressed {
+    fn archive(&self, request: ArchiveRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
+        let select_name = match request.action {
+            ArchiveAction::Compress {
+                archive_name,
+                format,
+                ..
+            } => format.archive_filename(&archive_name),
+            ArchiveAction::Extract { .. } => String::new(),
+        };
+        emit(OperationEvent::Archived {
             request_id: request.id,
-            archive_name: request.archive_name,
-        });
-        LoadHandle::new(|| {})
-    }
-
-    fn extract(&self, request: ExtractRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
-        emit(OperationEvent::Extracted {
-            request_id: request.id,
-            first_name: None,
+            select_name,
         });
         LoadHandle::new(|| {})
     }
@@ -753,15 +753,14 @@ impl OperationProvider for HeldExtractProvider {
         ImmediateOperationProvider.restore(request, emit)
     }
 
-    fn compress(&self, request: CompressRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
-        ImmediateOperationProvider.compress(request, emit)
-    }
-
-    fn extract(&self, request: ExtractRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
-        self.request_id.set(Some(request.id));
-        self.emit.replace(Some(emit));
-        let cancelled = self.cancelled.clone();
-        LoadHandle::new(move || cancelled.set(true))
+    fn archive(&self, request: ArchiveRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
+        if matches!(request.action, ArchiveAction::Extract { .. }) {
+            self.request_id.set(Some(request.id));
+            self.emit.replace(Some(emit));
+            let cancelled = self.cancelled.clone();
+            return LoadHandle::new(move || cancelled.set(true));
+        }
+        ImmediateOperationProvider.archive(request, emit)
     }
 }
 
@@ -781,18 +780,13 @@ fn cancelling_extraction_keeps_progress_until_the_worker_reports_cancellation() 
     let observed = events.clone();
     browser.observe(move |event| observed.borrow_mut().push(event.clone()));
 
-    let entry = FileEntry {
-        location: Location::local("/fixture/archive.zip"),
-        thumbnail_path: None,
-        native_name: OsString::from("archive.zip"),
-        display_name: "archive.zip".into(),
-        kind: EntryKind::File,
-        size: MetadataValue::Unknown,
-        modified_unix_seconds: MetadataValue::Unknown,
-        is_hidden: false,
-        mode: MetadataValue::Unknown,
-    };
-    browser.extract(entry, Location::local("/fixture"), None);
+    browser.archive(
+        Location::local("/fixture"),
+        None,
+        ArchiveAction::Extract {
+            archive: Location::local("/fixture/archive.zip"),
+        },
+    );
 
     let request_id = request_id.get().expect("extract request");
     assert_eq!(browser.current_operation.get(), Some(request_id));

@@ -2,7 +2,7 @@
 
 use super::chooser_context;
 use crate::model::{FileEntry, Location};
-use crate::services::ArchiveFormat;
+use crate::services::is_extractable_archive;
 use crate::ui::browser::clipboard::copy_locations;
 use crate::ui::browser::customization::show_customize_modal;
 use crate::ui::browser::desktop::{can_open_terminal, launch_terminal};
@@ -729,8 +729,8 @@ pub(in crate::ui) fn install_item_context_menu(
                 .as_ref()
                 .is_some_and(|handler| handler(&entry.location) == PinStatus::Available),
         );
-        let can_extract = entry.location.native_path().is_some()
-            && ArchiveFormat::from_extension(&entry.display_name).is_some();
+        let can_extract =
+            entry.location.native_path().is_some() && is_extractable_archive(&entry.display_name);
         extract.set_visible(can_extract);
         extract_to.set_visible(can_extract);
         customize

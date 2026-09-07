@@ -12,12 +12,12 @@ use crate::{
     app::navigation::{EntryInsertion, EntrySplice, NavigationPath, NavigationState, sort_entries},
     model::{FileEntry, Location, SortDirection, SortKey, ViewPreferences},
     services::{
-        ArchiveFormat, CompressRequest, CreateDirectoryRequest, CreateFileRequest, DeleteRequest,
-        DirectoryChange, DirectoryEvent, DirectoryRequest, ExtractRequest, FileSource, LoadHandle,
+        ArchiveAction, ArchiveRequest, CreateDirectoryRequest, CreateFileRequest, DeleteRequest,
+        DirectoryChange, DirectoryEvent, DirectoryRequest, FileSource, LoadHandle,
         LocationValidationError, MetadataOutcome, MetadataRequest, MoveRecord, OperationEvent,
         OperationProvider, OperationRequestId, PasteItem, PasteRequest, RenameRequest, RequestId,
-        RestoreRequest, RestoreSource, TransferConflict, UndoCopyRequest, UndoMoveItem,
-        UndoMoveRequest, validate_basename, validate_uri_credentials,
+        RestoreRequest, RestoreSource, UndoCopyRequest, UndoMoveItem, UndoMoveRequest,
+        validate_basename, validate_uri_credentials,
     },
 };
 
@@ -188,15 +188,17 @@ pub enum BrowserEvent {
         error: LocationValidationError,
     },
     EmptyTrashRequested,
-    ArchiveStarted {
-        total: usize,
-    },
+    ArchiveStarted,
     ArchiveProgress {
         completed: usize,
         total: usize,
     },
     ArchiveCompleted {
         select_name: String,
+    },
+    ArchivePasswordRequired {
+        archive: Location,
+        destination: Location,
     },
     TransferCompleted,
     TransferReveal {
@@ -1572,16 +1574,15 @@ impl Browser {
         true
     }
 
-    pub fn compress(
+    pub fn archive(
         self: &Rc<Self>,
-        entries: Vec<FileEntry>,
         destination: Location,
-        archive_name: String,
-        conflict: TransferConflict,
-        format: ArchiveFormat,
         password: Option<String>,
+        action: ArchiveAction,
     ) {
-        if entries.is_empty() {
+        if let ArchiveAction::Compress { sources, .. } = &action
+            && sources.is_empty()
+        {
             return;
         }
         let Some(provider) = self.operation_provider.borrow().clone() else {
@@ -1592,41 +1593,12 @@ impl Browser {
         };
         let request_id = self.begin_operation();
         self.archive_operation.set(true);
-        let load = provider.compress(
-            CompressRequest {
+        let load = provider.archive(
+            ArchiveRequest {
                 id: request_id,
-                entries,
-                destination,
-                archive_name,
-                conflict,
-                format,
-                password,
-            },
-            self.operation_callback(request_id, false, HashSet::new()),
-        );
-        self.operation_load.replace(Some(load));
-    }
-
-    pub fn extract(
-        self: &Rc<Self>,
-        entry: FileEntry,
-        destination: Location,
-        password: Option<String>,
-    ) {
-        let Some(provider) = self.operation_provider.borrow().clone() else {
-            self.emit(BrowserEvent::OperationFailed {
-                message: "File operations are unavailable".to_owned(),
-            });
-            return;
-        };
-        let request_id = self.begin_operation();
-        self.archive_operation.set(true);
-        let load = provider.extract(
-            ExtractRequest {
-                id: request_id,
-                entry,
                 destination,
                 password,
+                action,
             },
             self.operation_callback(request_id, false, HashSet::new()),
         );
@@ -1682,8 +1654,8 @@ impl Browser {
                 | OperationEvent::Restored { request_id, .. }
                 | OperationEvent::RestoreCompletedWithErrors { request_id, .. }
                 | OperationEvent::Failed { request_id, .. }
-                | OperationEvent::Compressed { request_id, .. }
-                | OperationEvent::Extracted { request_id, .. }
+                | OperationEvent::Archived { request_id, .. }
+                | OperationEvent::PasswordRequired { request_id, .. }
                 | OperationEvent::ArchiveStarted { request_id, .. }
                 | OperationEvent::Cancelled { request_id, .. }
                 | OperationEvent::ArchiveProgress { request_id, .. } => *request_id,
@@ -1757,8 +1729,8 @@ impl Browser {
                 });
                 return;
             }
-            if let OperationEvent::ArchiveStarted { total, .. } = &event {
-                browser.emit(BrowserEvent::ArchiveStarted { total: *total });
+            if let OperationEvent::ArchiveStarted { .. } = &event {
+                browser.emit(BrowserEvent::ArchiveStarted);
                 return;
             }
             if let OperationEvent::ArchiveProgress {
@@ -1944,14 +1916,17 @@ impl Browser {
                         }
                     }
                 }
-                OperationEvent::Compressed { archive_name, .. } => {
-                    browser.emit(BrowserEvent::ArchiveCompleted {
-                        select_name: archive_name.clone(),
-                    });
+                OperationEvent::Archived { select_name, .. } => {
+                    browser.emit(BrowserEvent::ArchiveCompleted { select_name });
                 }
-                OperationEvent::Extracted { first_name, .. } => {
-                    browser.emit(BrowserEvent::ArchiveCompleted {
-                        select_name: first_name.unwrap_or_default(),
+                OperationEvent::PasswordRequired {
+                    archive,
+                    destination,
+                    ..
+                } => {
+                    browser.emit(BrowserEvent::ArchivePasswordRequired {
+                        archive,
+                        destination,
                     });
                 }
                 OperationEvent::Pasted { .. } => {

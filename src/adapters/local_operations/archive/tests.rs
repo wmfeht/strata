@@ -21,33 +21,19 @@ use gtk::glib;
 
 use super::{
     ArchiveError, ArchiveOutcome, ExtractLimits, compress_entries, extract_archive,
-    extract_with_limits, libarchive::WriteArchive, process_umask, validated_archive_path,
-    write_staged_archive,
+    extract_with_limits,
+    libarchive::{TarFilter, WriteArchive},
+    process_umask, validated_archive_path, write_staged_archive,
 };
 use crate::{
     adapters::local_operations::LocalOperationProvider,
-    model::{EntryKind, FileEntry, Location, MetadataValue},
+    model::Location,
     services::{
-        ArchiveFormat, CompressRequest, OperationEvent, OperationProvider, OperationRequestId,
-        TransferConflict,
+        ArchiveAction, ArchiveFormat, ArchiveRequest, OperationEvent, OperationProvider,
+        OperationRequestId, TransferConflict,
     },
     test_support::ASYNC_MAIN_CONTEXT_DEFAULT,
 };
-
-fn file_entry(path: &Path) -> FileEntry {
-    let name = path.file_name().unwrap_or_default().to_os_string();
-    FileEntry {
-        location: Location::local(path),
-        thumbnail_path: None,
-        native_name: name.clone(),
-        display_name: name.to_string_lossy().into_owned(),
-        kind: EntryKind::File,
-        size: MetadataValue::Unknown,
-        modified_unix_seconds: MetadataValue::Unknown,
-        is_hidden: false,
-        mode: MetadataValue::Unknown,
-    }
-}
 
 fn lock_main_context() -> Result<std::sync::MutexGuard<'static, ()>, Box<dyn Error>> {
     ASYNC_MAIN_CONTEXT_DEFAULT
@@ -55,17 +41,19 @@ fn lock_main_context() -> Result<std::sync::MutexGuard<'static, ()>, Box<dyn Err
         .map_err(|error| error.to_string().into())
 }
 
-fn run_compression(request: CompressRequest) -> Vec<OperationEvent> {
+fn run_archive(request: ArchiveRequest) -> Vec<OperationEvent> {
     let events = Rc::new(RefCell::new(Vec::new()));
     let emitted = events.clone();
-    let operation = LocalOperationProvider.compress(
+    let operation = LocalOperationProvider.archive(
         request,
         Rc::new(move |event| emitted.borrow_mut().push(event)),
     );
     while !events.borrow().iter().any(|event| {
         matches!(
             event,
-            OperationEvent::Compressed { .. } | OperationEvent::Failed { .. }
+            OperationEvent::Archived { .. }
+                | OperationEvent::Failed { .. }
+                | OperationEvent::PasswordRequired { .. }
         )
     }) {
         glib::MainContext::default().iteration(true);
@@ -74,21 +62,27 @@ fn run_compression(request: CompressRequest) -> Vec<OperationEvent> {
     events.borrow().clone()
 }
 
+fn run_compression(request: ArchiveRequest) -> Vec<OperationEvent> {
+    run_archive(request)
+}
+
 fn compress_request(
     source: &Path,
     destination: &Path,
     name: &str,
     format: ArchiveFormat,
     conflict: TransferConflict,
-) -> CompressRequest {
-    CompressRequest {
+) -> ArchiveRequest {
+    ArchiveRequest {
         id: OperationRequestId(1),
-        entries: vec![file_entry(source)],
         destination: Location::local(destination),
-        archive_name: name.to_owned(),
-        conflict,
-        format,
         password: None,
+        action: ArchiveAction::Compress {
+            sources: vec![Location::local(source)],
+            archive_name: name.to_owned(),
+            format,
+            conflict,
+        },
     }
 }
 
@@ -124,6 +118,27 @@ fn write_archive(
     entries: &[(&str, Option<&[u8]>)],
 ) -> Result<(), Box<dyn Error>> {
     let mut writer = WriteArchive::create(fs::File::create(path)?, format, None)?;
+    for (name, contents) in entries {
+        let member = Path::new(name);
+        match contents {
+            None => writer.write_directory(member)?,
+            Some(bytes) => {
+                writer.write_file_header(member, bytes.len() as u64, None)?;
+                writer.write_all(bytes)?;
+                writer.finish_entry()?;
+            }
+        }
+    }
+    writer.finish()?;
+    Ok(())
+}
+
+fn write_tar_filter(
+    path: &Path,
+    filter: TarFilter,
+    entries: &[(&str, Option<&[u8]>)],
+) -> Result<(), Box<dyn Error>> {
+    let mut writer = WriteArchive::create_tar_filter(fs::File::create(path)?, filter)?;
     for (name, contents) in entries {
         let member = Path::new(name);
         match contents {
