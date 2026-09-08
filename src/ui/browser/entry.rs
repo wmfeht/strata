@@ -206,7 +206,7 @@ pub(super) fn icon_for_name(name: &str) -> &'static str {
 }
 
 /// Single-stream compressed files that the extract reader does not open
-/// (libarchive's raw format is disabled) but that still use the archive icon.
+/// but that still use the archive icon.
 fn is_compressed_stream(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     [".gz", ".xz", ".bz2", ".zst"]

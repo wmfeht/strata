@@ -20,16 +20,16 @@ The in-app **Preview** channel receives alpha, beta, RC, and stable releases. Th
 
 ## Archive notes for the next GitHub release
 
-The first release that ships the libarchive backend should mention these
+The first release that ships the `exarch-core` backend should mention these
 user-facing changes in the GitHub release body (they are intentional; see
 [Architecture: Archives](architecture.md)):
 
-- Creating password-protected ZIP (AES-256) and 7z is no longer offered.
-  libarchive cannot write encrypted archives.
-- Extracting encrypted 7z fails with “This archive is encrypted in a format
-  that cannot be opened” instead of prompting. Encrypted ZIP (ZipCrypto and
-  WinZip AES-256, including archives created by earlier Strata versions) still
-  prompts for a password.
+- Archives are created and extracted with `exarch-core` instead of libarchive.
+- Create ZIP, TAR, and TAR.GZ. 7z creation is no longer offered.
+- Extract ZIP, TAR, TAR.GZ, TAR.XZ, TAR.ZST, TAR.BZ2, and 7z. RAR is not
+  supported.
+- Encrypted ZIP and 7z fail with “This archive is encrypted in a format that
+  cannot be opened” instead of prompting.
 
 ## Publishing a stable release
 

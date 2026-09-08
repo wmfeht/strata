@@ -16,7 +16,6 @@ depends=(
   'gtk4>=4.12'
   'gtksourceview5'
   'gvfs'
-  'libarchive'
   'poppler-glib'
 )
 optdepends=(

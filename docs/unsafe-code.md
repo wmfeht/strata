@@ -48,20 +48,3 @@ The operations are individually scoped and document:
 - Why rebuilding the font set occurs before GTK/Pango creates the application font map
 
 If a maintained safe API gains this capability, this exception should be removed.
-
-### libarchive bindings
-
-Location: `src/adapters/local_operations/archive/libarchive.rs` and `src/adapters/local_operations/archive/libarchive/ffi.rs`
-
-Reason: libarchive exposes archive read and write only through its C API. The only maintained safe wrapper that both reads and writes (`libarchive2`) hard-depends on a `-sys` crate that vendors libarchive and links libxml2 unconditionally; its constructors cannot allowlist formats, cannot open a descriptor after `add_passphrase`, and cannot distinguish `ARCHIVE_WARN`. `compress-tools` links the system library but is extract-only.
-
-The FFI layer declares only the functions Strata calls. The safe wrapper:
-
-- Allowlists ZIP, 7z, TAR, RAR, and RAR5 with gzip, bzip2, xz, and zstd filters
-- Creates, uses, and frees each handle on one worker thread (`!Send + !Sync`)
-- Treats `ARCHIVE_WARN` on headers as a logged warning rather than a hard failure
-- Copies libarchive strings before the next `archive_read_next_header`
-- Owns the `File` whose descriptor outlives the archive handle
-- Frees each handle exactly once (`WriteArchive::finish` takes it out of an `Option` so `Drop` does not double-free)
-
-If a maintained safe API gains these capabilities against the system library, this exception should be removed.

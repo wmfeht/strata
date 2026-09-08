@@ -94,7 +94,7 @@ Verify any change to this with `vercmp` directly. The download URL always uses t
 
 `namcap` reports `bubblewrap` as an unnecessary dependency. It is required: Strata executes `bwrap` to sandbox every preview and thumbnail render, and `namcap` only inspects ELF linkage, not processes a program spawns. The packaging CI job fails on `E:` lines only, so this warning does not break the build.
 
-Release archives are built on Ubuntu 24.04. Archive support links the distribution's `libarchive.so.13`; codec libraries, libxml2, BLAKE2, and ACL are libarchive's dependencies, not Strata's. The soname is `libarchive.so.13` on Ubuntu 24.04, Arch, Debian, and Fedora.
+Release archives are built on Ubuntu 24.04. Archive support uses `exarch-core` and may link `liblzma` and `libbz2` for tar.xz / tar.bz2. It does not link `libarchive`.
 
 ## Desktop metadata
 
