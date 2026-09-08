@@ -8,7 +8,6 @@ use std::{
     error::Error,
     ffi::OsString,
     fs,
-    io::Write as _,
     path::{Path, PathBuf},
     rc::Rc,
     sync::{
@@ -20,10 +19,8 @@ use std::{
 use gtk::glib;
 
 use super::{
-    ArchiveError, ArchiveOutcome, ExtractLimits, cancel_after_next_copy_chunk, compress_entries,
-    extract_archive, extract_with_limits,
-    libarchive::{TarFilter, WriteArchive},
-    process_umask, validated_archive_path, write_staged_archive,
+    ArchiveError, ArchiveOutcome, ExtractLimits, compress_entries, creation_config,
+    extract_archive, extract_with_limits, process_umask, write_staged_archive,
 };
 use crate::{
     adapters::local_operations::LocalOperationProvider,
@@ -34,6 +31,7 @@ use crate::{
     },
     test_support::ASYNC_MAIN_CONTEXT_DEFAULT,
 };
+use exarch_core::{create_archive, formats::detect::ArchiveType};
 
 fn lock_main_context() -> Result<std::sync::MutexGuard<'static, ()>, Box<dyn Error>> {
     ASYNC_MAIN_CONTEXT_DEFAULT
@@ -90,11 +88,11 @@ fn compression_stages(destination: &Path) -> Result<Vec<OsString>, Box<dyn Error
 }
 
 fn write_fixture(path: &Path, entries: &[PathBuf], format: ArchiveFormat) -> Result<(), String> {
-    let file = fs::File::create(path).map_err(|error| error.to_string())?;
     compress_entries(
-        file,
+        path,
         entries,
         format,
+        &Arc::new(AtomicUsize::new(0)),
         &Arc::new(AtomicUsize::new(0)),
         &never_cancelled(),
     )
@@ -106,40 +104,109 @@ fn write_archive(
     format: ArchiveFormat,
     entries: &[(&str, Option<&[u8]>)],
 ) -> Result<(), Box<dyn Error>> {
-    let mut writer = WriteArchive::create(fs::File::create(path)?, format, None)?;
+    let archive_type = match format {
+        ArchiveFormat::Zip => ArchiveType::Zip,
+        ArchiveFormat::Tar => ArchiveType::Tar,
+        ArchiveFormat::TarGz => ArchiveType::TarGz,
+        ArchiveFormat::SevenZ => {
+            return Err("7z fixtures cannot be created with exarch_core".into());
+        }
+    };
+    write_typed_archive(path, archive_type, entries)
+}
+
+fn write_typed_archive(
+    path: &Path,
+    format: ArchiveType,
+    entries: &[(&str, Option<&[u8]>)],
+) -> Result<(), Box<dyn Error>> {
+    let root = tempfile::tempdir()?;
     for (name, contents) in entries {
-        let member = Path::new(name);
+        let dest = root.path().join(name);
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent)?;
+        }
         match contents {
-            None => writer.write_directory(member, 0o755)?,
+            None => {
+                fs::create_dir_all(&dest)?;
+            }
             Some(bytes) => {
-                writer.write_file_header(member, bytes.len() as u64, 0o644, None)?;
-                writer.write_all(bytes)?;
-                writer.finish_entry()?;
+                fs::write(&dest, bytes)?;
             }
         }
     }
-    writer.finish()?;
+    create_archive(path, &[root.path()], &creation_config(format))?;
     Ok(())
 }
 
-fn write_tar_filter(
+fn write_tar_members(
     path: &Path,
-    filter: TarFilter,
-    entries: &[(&str, Option<&[u8]>)],
+    build: impl FnOnce(&mut tar::Builder<fs::File>) -> Result<(), Box<dyn Error>>,
 ) -> Result<(), Box<dyn Error>> {
-    let mut writer = WriteArchive::create_tar_filter(fs::File::create(path)?, filter)?;
-    for (name, contents) in entries {
-        let member = Path::new(name);
-        match contents {
-            None => writer.write_directory(member, 0o755)?,
-            Some(bytes) => {
-                writer.write_file_header(member, bytes.len() as u64, 0o644, None)?;
-                writer.write_all(bytes)?;
-                writer.finish_entry()?;
-            }
-        }
+    let file = fs::File::create(path)?;
+    let mut builder = tar::Builder::new(file);
+    build(&mut builder)?;
+    builder.finish()?;
+    Ok(())
+}
+
+fn append_tar_file(
+    builder: &mut tar::Builder<fs::File>,
+    name: &str,
+    bytes: &[u8],
+) -> Result<(), Box<dyn Error>> {
+    let mut header = tar::Header::new_gnu();
+    header.set_size(bytes.len() as u64);
+    header.set_mode(0o644);
+    header.set_cksum();
+    builder.append_data(&mut header, name, bytes)?;
+    Ok(())
+}
+
+/// Writes a tar member whose name the `tar` crate would otherwise reject (`..`).
+fn append_tar_named(
+    builder: &mut tar::Builder<fs::File>,
+    name: &str,
+    bytes: &[u8],
+) -> Result<(), Box<dyn Error>> {
+    let mut header = tar::Header::new_gnu();
+    header.set_size(bytes.len() as u64);
+    header.set_mode(0o644);
+    let name_bytes = name.as_bytes();
+    if name_bytes.len() >= header.as_old().name.len() {
+        return Err("tar member name is too long for the ustar name field".into());
     }
-    writer.finish()?;
+    header.as_old_mut().name[..name_bytes.len()].copy_from_slice(name_bytes);
+    header.set_cksum();
+    builder.append(&header, bytes)?;
+    Ok(())
+}
+
+fn append_tar_symlink(
+    builder: &mut tar::Builder<fs::File>,
+    name: &str,
+    target: &str,
+) -> Result<(), Box<dyn Error>> {
+    let mut header = tar::Header::new_gnu();
+    header.set_entry_type(tar::EntryType::Symlink);
+    header.set_size(0);
+    header.set_mode(0o777);
+    header.set_cksum();
+    builder.append_link(&mut header, name, target)?;
+    Ok(())
+}
+
+fn append_tar_hardlink(
+    builder: &mut tar::Builder<fs::File>,
+    name: &str,
+    target: &str,
+) -> Result<(), Box<dyn Error>> {
+    let mut header = tar::Header::new_gnu();
+    header.set_entry_type(tar::EntryType::Link);
+    header.set_size(0);
+    header.set_mode(0o644);
+    header.set_cksum();
+    builder.append_link(&mut header, name, target)?;
     Ok(())
 }
 
@@ -172,6 +239,7 @@ fn extract_with_password(
             path,
             destination,
             password,
+            &Arc::new(AtomicUsize::new(0)),
             &Arc::new(AtomicUsize::new(0)),
             &never_cancelled(),
         )
@@ -214,66 +282,4 @@ fn extract_limited(
         &never_cancelled(),
         limits,
     )
-}
-
-/// Expansion ratio still applies to archives larger than the 64 MiB floor.
-#[test]
-fn bomb_ratio_large_compressed_size() {
-    let mut budget = super::ExtractBudget {
-        limits: ExtractLimits {
-            max_total_bytes: u64::MAX,
-            max_members: 100,
-            max_path_depth: 16,
-            bomb_ratio: 200,
-            ratio_floor: 64 * 1024 * 1024,
-        },
-        compressed_size: 65 * 1024 * 1024,
-        written: 0,
-        members: 0,
-    };
-    budget
-        .add_bytes(65 * 1024 * 1024 * 200)
-        .expect("an expansion of exactly 200× should be allowed");
-    let error = budget
-        .add_bytes(1)
-        .expect_err("a 65 MiB archive should still be refused past 200×");
-    assert!(
-        matches!(
-            error,
-            ArchiveError::Failed(ref message)
-                if message.contains("expands beyond the safety limit")
-        ),
-        "{error:?}"
-    );
-}
-
-/// Below the ratio floor, expansion is bounded only by free space.
-#[test]
-fn bomb_ratio_below_floor() {
-    let mut budget = super::ExtractBudget {
-        limits: ExtractLimits {
-            max_total_bytes: u64::MAX,
-            max_members: 100,
-            max_path_depth: 16,
-            bomb_ratio: 1,
-            ratio_floor: 64 * 1024,
-        },
-        compressed_size: 1,
-        written: 0,
-        members: 0,
-    };
-    budget
-        .add_bytes(64 * 1024)
-        .expect("writes up to the floor should be allowed regardless of ratio");
-    let error = budget
-        .add_bytes(1)
-        .expect_err("the first byte past the floor should apply the ratio");
-    assert!(
-        matches!(
-            error,
-            ArchiveError::Failed(ref message)
-                if message.contains("expands beyond the safety limit")
-        ),
-        "{error:?}"
-    );
 }

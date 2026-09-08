@@ -263,7 +263,7 @@ impl ViewState {
     /// Returns immediately when the selection is empty or any entry is not a
     /// native path; archive creation is a local operation. The destination is
     /// the first entry's parent, then the active location, then the home
-    /// directory. Compress does not offer a password: libarchive cannot write
+    /// directory. Compress does not offer a password: `exarch_core` cannot write
     /// encrypted archives. The typed name is normalized with
     /// [`normalized_archive_name`] and checked with [`validate_basename`] before
     /// [`Self::start_compression`].
@@ -310,15 +310,13 @@ impl ViewState {
         body.append(&name_entry);
 
         let format_label = form_label("Format");
-        let (format_control, format_options) =
-            segmented_control(&["ZIP", "7Z", "TAR.GZ", "TAR"], 0);
+        let (format_control, format_options) = segmented_control(&["ZIP", "TAR.GZ", "TAR"], 0);
         let selected_format = Rc::new(Cell::new(ArchiveFormat::Zip));
         body.append(&format_label);
         body.append(&format_control);
 
         for (option, format) in format_options.into_iter().zip([
             ArchiveFormat::Zip,
-            ArchiveFormat::SevenZ,
             ArchiveFormat::TarGz,
             ArchiveFormat::Tar,
         ]) {

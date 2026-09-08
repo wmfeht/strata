@@ -12,7 +12,6 @@ import pytest
 
 CREATABLE_FORMATS = (
     ("ZIP", "bundle.zip"),
-    ("7Z", "bundle.7z"),
     ("TAR.GZ", "bundle.tar.gz"),
     ("TAR", "bundle.tar"),
 )
@@ -33,7 +32,7 @@ def compress_as(strata, entry_name, archive_name, format_label):
     strata.wait(
         lambda: dialog.find(role="toggle button", name="No password")
         is None,
-        "password options to stay hidden: libarchive cannot write encrypted archives",
+        "password options to stay hidden: exarch_core cannot write encrypted archives",
     )
     field = strata.wait(
         lambda: dialog.find(role="text", states={"editable"}),
@@ -65,7 +64,7 @@ def extract_to(strata, archive_name, destination):
 @pytest.mark.parametrize(
     "format_label, archive_name",
     CREATABLE_FORMATS,
-    ids=["zip", "7z", "tar-gz", "tar"],
+    ids=["zip", "tar-gz", "tar"],
 )
 def test_round_trip_from_the_context_menu(strata, format_label, archive_name):
     fixture = strata.fixture

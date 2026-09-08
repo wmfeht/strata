@@ -83,7 +83,6 @@ fn extractable_archives_include_read_only_suffixes() {
         "backup.tar.xz",
         "backup.tzst",
         "backup.tbz2",
-        "payload.rar",
     ] {
         assert!(
             is_extractable_archive(name),
@@ -96,8 +95,7 @@ fn extractable_archives_include_read_only_suffixes() {
 
 #[test]
 fn single_stream_compressed_files_are_not_offered_as_extractable() {
-    // libarchive's `support_format_all` omits the raw format, so plain
-    // `.gz` / `.xz` / `.zst` / `.bz2` cannot be decoded by the reader.
+    // Single-stream compressed files are not archives.
     for name in ["notes.gz", "notes.xz", "notes.zst", "notes.bz2"] {
         assert!(
             !is_extractable_archive(name),

@@ -4,10 +4,10 @@ Thanks for helping build Strata. The project is early, so discuss large changes 
 
 ## Development setup
 
-Install Rust, GTK4, Fontconfig, a C toolchain, `pkg-config`, and libarchive ≥ 3.7.2. Archives link the system `libarchive.so.13`. On Arch Linux:
+Install Rust, GTK4, Fontconfig, a C toolchain, and `pkg-config`. Archive support uses the `exarch-core` crate. On Arch Linux:
 
 ```bash
-sudo pacman -S --needed base-devel rust fontconfig gtk4 gtksourceview5 poppler-glib libarchive
+sudo pacman -S --needed base-devel rust fontconfig gtk4 gtksourceview5 poppler-glib xz bzip2
 ```
 
 Run the application:

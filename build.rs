@@ -1,11 +1,6 @@
 use std::{env, path::PathBuf, process::Command};
 
 fn main() {
-    pkg_config::Config::new()
-        .atleast_version("3.7.2")
-        .probe("libarchive")
-        .expect("libarchive >= 3.7.2 development files are required (libarchive-dev / libarchive)");
-
     glib_build_tools::compile_resources(&["data"], "data/strata.gresource.xml", "strata.gresource");
 
     println!("cargo::rerun-if-env-changed=STRATA_BUILD_COMMIT");

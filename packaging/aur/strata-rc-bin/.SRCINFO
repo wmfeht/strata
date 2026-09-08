@@ -12,7 +12,6 @@ pkgbase = strata-rc-bin
 	depends = gtk4>=4.12
 	depends = gtksourceview5
 	depends = gvfs
-	depends = libarchive
 	depends = poppler-glib
 	optdepends = ffmpeg: video previews
 	optdepends = ffmpegthumbnailer: video thumbnails

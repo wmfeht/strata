@@ -13,6 +13,7 @@ categories = ["filesystem", "gui"]
 ashpd = { version = "=0.13.13", default-features = false, features = ["backend", "file_chooser", "async-io", "tracing"] }
 async-io = "2.6.0"
 cairo-rs = { version = "0.22.9", features = ["pdf", "png"] }
+exarch-core = "0.6.1"
 fontconfig-sys = { package = "yeslogic-fontconfig-sys", version = "6.0.1" }
 futures-channel = "0.3.31"
 futures-lite = "2.6.1"
@@ -23,7 +24,6 @@ gio-unix = "0.22.8"
 glib = "0.22.9"
 gtk = { package = "gtk4", version = "0.11.4", features = ["v4_12"] }
 ignore = "0.4.23"
-libc = "0.2"
 pangocairo = "0.22.0"
 poppler = { package = "poppler-rs", version = "0.26.0" }
 pulldown-cmark = { version = "0.13", default-features = false }
@@ -42,7 +42,9 @@ zstd = "0.13.3"
 
 [build-dependencies]
 glib-build-tools = "0.22.8"
-pkg-config = "0.3"
+
+[dev-dependencies]
+zip = { version = "9.0.0-pre2", default-features = false, features = ["deflate"] }
 
 [profile.release]
 # Whole-program optimization for the hot listing/sort/insert paths. Build

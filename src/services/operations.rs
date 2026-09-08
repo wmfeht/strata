@@ -114,7 +114,9 @@ pub struct RestoreRequest {
 /// Archive format this app can create.
 ///
 /// Extraction recognizes a wider set of suffixes via [`is_extractable_archive`];
-/// libarchive then decides whether the bytes are a valid archive.
+/// `exarch_core` then decides whether the bytes are a valid archive.
+/// 7z is extract-only: [`ArchiveFormat::SevenZ`] exists so `.7z` names are
+/// recognized, but compression refuses it.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ArchiveFormat {
     Zip,
@@ -155,17 +157,16 @@ impl ArchiveFormat {
 }
 
 const EXTRACT_ONLY_SUFFIXES: &[&str] = &[
-    ".tar.xz", ".txz", ".tar.zst", ".tzst", ".tar.bz2", ".tbz2", ".tbz", ".rar",
+    ".tar.xz", ".txz", ".tar.zst", ".tzst", ".tar.bz2", ".tbz2", ".tbz",
 ];
 
 /// Whether `name` looks like an archive this app can extract.
 ///
 /// Recognition is by suffix, including compound suffixes such as `.tar.gz`.
 /// Creatable formats go through [`ArchiveFormat::from_extension`]; extract-only
-/// suffixes are listed separately. libarchive still decides whether the bytes
-/// are a valid archive. Single-stream `.gz` / `.xz` / `.zst` / `.bz2` are
-/// intentionally excluded: they need libarchive's raw format, which the reader
-/// does not enable (`archive_read_support_format_all` omits raw).
+/// suffixes are listed separately. `exarch_core` still decides whether the
+/// bytes are a valid archive. Single-stream `.gz` / `.xz` / `.zst` / `.bz2`
+/// are intentionally excluded. RAR is not supported.
 pub fn is_extractable_archive(name: &str) -> bool {
     if ArchiveFormat::from_extension(name).is_some() {
         return true;
@@ -286,6 +287,12 @@ pub enum OperationEvent {
         request_id: OperationRequestId,
         select_name: String,
     },
+    /// Emitted when extract needs a password. `exarch-core` cannot decrypt,
+    /// so the local archive adapter currently never produces this event.
+    #[expect(
+        dead_code,
+        reason = "kept for the password-prompt UI; exarch-core cannot decrypt"
+    )]
     PasswordRequired {
         request_id: OperationRequestId,
         archive: Location,
