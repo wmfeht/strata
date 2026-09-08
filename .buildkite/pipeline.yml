@@ -81,7 +81,7 @@ steps:
         command: .buildkite/run.sh ./scripts/e2e.sh -p no:cacheprovider --timeout=60 --durations=10
         timeout_in_minutes: 40
         env:
-          STRATA_E2E_WORKERS: "2"
+          STRATA_E2E_WORKERS: "8"
         artifact_paths:
           - target/e2e-artifacts/**/*
         retry:
