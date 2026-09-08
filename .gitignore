@@ -1,4 +1,8 @@
 /target
+/result
+/result-*
+.direnv/
+
 *.swp
 *.swo
 .idea/

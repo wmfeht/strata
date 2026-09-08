@@ -1,4 +1,4 @@
-"""Buildkite pipeline wiring, without Docker, Cargo, or network access."""
+"""Buildkite pipeline wiring, without Nix, Cargo, or network access."""
 
 import json
 import os
@@ -12,7 +12,9 @@ import unittest
 REPOSITORY = Path(__file__).resolve().parents[1]
 PIPELINE = REPOSITORY / ".buildkite/pipeline.yml"
 RUNNER = REPOSITORY / ".buildkite/run.sh"
-POLICY = REPOSITORY / ".buildkite/policy.sh"
+FLAKE = REPOSITORY / "flake.nix"
+LOCK = REPOSITORY / "flake.lock"
+CI = REPOSITORY / ".github/workflows/ci.yml"
 
 
 class PipelineTests(unittest.TestCase):
@@ -25,41 +27,77 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("cargo test --all-targets --all-features --locked", text)
         self.assertIn("env -u DISPLAY -u WAYLAND_DISPLAY GDK_BACKEND=x11", text)
         self.assertIn("python3 -m unittest discover -s scripts -p 'test_*.py'", text)
-        self.assertIn(".buildkite/policy.sh deny", text)
-        self.assertIn(".buildkite/policy.sh typos", text)
+        self.assertIn(".buildkite/run.sh cargo deny check", text)
+        self.assertIn(".buildkite/run.sh typos", text)
         self.assertIn("./scripts/e2e.sh", text)
         self.assertIn("target/e2e-artifacts/**/*", text)
 
     def test_shell_scripts_have_valid_syntax(self):
-        for script in (RUNNER, POLICY):
-            with self.subTest(script=script.name):
-                result = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True)
-                self.assertEqual(result.returncode, 0, result.stderr)
+        result = subprocess.run(["bash", "-n", str(RUNNER)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+
+class FlakeTests(unittest.TestCase):
+    def test_flake_pins_the_e2e_rust_toolchain(self):
+        text = FLAKE.read_text()
+        self.assertIn('rustVersion = "1.98.1"', text)
+        self.assertIn("pkgs.gtk4", text)
+        self.assertIn("pkgs.gtksourceview5", text)
+        self.assertIn("pkgs.poppler", text)
+        self.assertIn("pkgs.fontconfig", text)
+        self.assertIn("pkgs.cargo-deny", text)
+        self.assertIn("pkgs.typos", text)
+
+    def test_lockfile_pins_nixpkgs_and_rust_overlay(self):
+        lock = json.loads(LOCK.read_text())
+        self.assertEqual(lock["nodes"]["nixpkgs"]["original"]["ref"], "nixos-unstable")
+        self.assertEqual(lock["nodes"]["rust-overlay"]["original"]["owner"], "oxalica")
+        self.assertEqual(lock["nodes"]["root"]["inputs"]["rust-overlay"], "rust-overlay")
+
+
+class GitHubCiTests(unittest.TestCase):
+    def test_quality_job_enters_nix_develop(self):
+        quality = CI.read_text().split("e2e-build:")[0]
+        self.assertIn("DeterminateSystems/determinate-nix-action", quality)
+        self.assertIn("nicknovitski/nix-develop", quality)
+        self.assertNotIn("apt-get", quality)
+        self.assertNotIn("dtolnay/rust-toolchain", quality)
+
+    def test_policy_job_uses_the_flake_tools(self):
+        policy = CI.read_text().split("repository-policy:")[1]
+        self.assertIn("DeterminateSystems/determinate-nix-action", policy)
+        self.assertIn("nicknovitski/nix-develop", policy)
+        self.assertIn("cargo deny check", policy)
+        self.assertIn("run: typos", policy)
+        self.assertNotIn("EmbarkStudios/cargo-deny-action", policy)
+        self.assertNotIn("crate-ci/typos", policy)
 
 
 class ToolchainRunnerTests(unittest.TestCase):
-    def run_runner(self, *command, engine_name="docker", uid=None):
+    def run_runner(self, *command, with_nix=True):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            engine = root / engine_name
             log = root / "calls.jsonl"
-            engine.write_text(
-                f"#!{sys.executable}\n"
-                "import json, os, sys\n"
-                "with open(os.environ['ENGINE_LOG'], 'a') as stream:\n"
-                "    stream.write(json.dumps(sys.argv[1:]) + '\\n')\n"
-            )
-            engine.chmod(0o755)
-            environment = {
-                **os.environ,
-                "STRATA_CONTAINER_ENGINE": str(engine),
-                "ENGINE_LOG": str(log),
-            }
-            if uid is not None:
-                identity = root / "id"
-                identity.write_text(f"#!/bin/sh\necho {uid}\n")
-                identity.chmod(0o755)
-                environment["PATH"] = f"{root}:{os.environ.get('PATH', os.defpath)}"
+            environment = {**os.environ, "ENGINE_LOG": str(log)}
+            environment.pop("CARGO_HOME", None)
+            environment.pop("CARGO_TARGET_DIR", None)
+            system_path = os.pathsep.join(("/usr/bin", "/bin"))
+            if with_nix:
+                nix = root / "nix"
+                nix.write_text(
+                    f"#!{sys.executable}\n"
+                    "import json, os, sys\n"
+                    "with open(os.environ['ENGINE_LOG'], 'a') as stream:\n"
+                    "    stream.write(json.dumps({\n"
+                    "        'argv': sys.argv[1:],\n"
+                    "        'cargo_home': os.environ.get('CARGO_HOME'),\n"
+                    "        'cargo_target_dir': os.environ.get('CARGO_TARGET_DIR'),\n"
+                    "    }) + '\\n')\n"
+                )
+                nix.chmod(0o755)
+                environment["PATH"] = f"{root}{os.pathsep}{system_path}"
+            else:
+                environment["PATH"] = system_path
             result = subprocess.run(
                 [str(RUNNER), *command],
                 env=environment,
@@ -76,138 +114,19 @@ class ToolchainRunnerTests(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertIn("usage:", result.stderr)
 
-    def test_build_and_run_share_the_e2e_toolchain_image(self):
+    def test_run_enters_the_flake_development_shell(self):
         result, calls = self.run_runner("cargo", "fmt", "--all", "--check")
         self.assertEqual(result.returncode, 0, result.stderr)
-        build, run = calls
-        self.assertEqual(build[0], "build")
-        self.assertIn("--target", build)
-        self.assertEqual(build[build.index("--target") + 1], "toolchain")
-        self.assertIn(str(REPOSITORY / "tests/e2e/Dockerfile"), build)
-        image = build[build.index("--tag") + 1]
-        self.assertTrue(image.startswith("strata-e2e:"))
-        self.assertIn(image, run)
-        self.assertEqual(run[0], "run")
-        self.assertIn(f"type=bind,source={REPOSITORY},target=/workspace", run)
-        self.assertIn("CARGO_HOME=/workspace/target/buildkite/cargo", run)
-        self.assertIn("CARGO_TARGET_DIR=/workspace/target/buildkite/build", run)
-        self.assertEqual(run[-4:], ["cargo", "fmt", "--all", "--check"])
-        self.assertNotIn("--userns=keep-id", run)
+        self.assertEqual(len(calls), 1)
+        argv = calls[0]["argv"]
+        self.assertEqual(argv[:3], ["--extra-experimental-features", "nix-command flakes", "develop"])
+        self.assertEqual(argv[3], "--command")
+        self.assertEqual(argv[-4:], ["cargo", "fmt", "--all", "--check"])
+        self.assertTrue(calls[0]["cargo_home"].endswith("target/buildkite/cargo"))
+        self.assertTrue(calls[0]["cargo_target_dir"].endswith("target/buildkite/build"))
 
-    def test_rootless_podman_preserves_checkout_ownership(self):
-        result, calls = self.run_runner("cargo", "fmt", "--all", "--check", engine_name="podman")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("--userns=keep-id", calls[1])
-        self.assertIn("--passwd=false", calls[1])
-
-    def test_non_default_uid_has_a_matching_image_account(self):
-        result, calls = self.run_runner("true", uid=1001)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        build, run = calls
-        self.assertIn("E2E_UID=1001", build)
-        self.assertIn("E2E_GID=1001", build)
-        self.assertTrue(build[build.index("--tag") + 1].endswith("-1001-1001"))
-        self.assertEqual(run[run.index("--user") + 1], "1001:1001")
-
-
-class PolicyToolTests(unittest.TestCase):
-    def run_policy(self, tool, arch="x86_64", curl_status=0):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            log = root / "calls.jsonl"
-            extracted = root / "extracted"
-            extracted.mkdir()
-            curl = root / "curl"
-            tar = root / "tar"
-            uname = root / "uname"
-            curl.write_text(
-                f"#!{sys.executable}\n"
-                "import json, os, sys\n"
-                "with open(os.environ['TOOL_LOG'], 'a') as stream:\n"
-                "    stream.write(json.dumps(['curl', sys.argv[1:]]) + '\\n')\n"
-                "sys.exit(int(os.environ['CURL_STATUS']))\n"
-            )
-            tar.write_text(
-                f"#!{sys.executable}\n"
-                "import json, os, sys\n"
-                "from pathlib import Path\n"
-                "with open(os.environ['TOOL_LOG'], 'a') as stream:\n"
-                "    stream.write(json.dumps(['tar', sys.argv[1:]]) + '\\n')\n"
-                "dest = Path(sys.argv[sys.argv.index('-C') + 1])\n"
-                "if os.environ['POLICY_TOOL'] == 'deny':\n"
-                "    version = os.environ['DENY_VERSION']\n"
-                "    triple = os.environ['TRIPLE']\n"
-                "    binary = dest / f'cargo-deny-{version}-{triple}' / 'cargo-deny'\n"
-                "    binary.parent.mkdir(parents=True)\n"
-                "    binary.write_text('#!/bin/sh\\necho deny\\n')\n"
-                "    binary.chmod(0o755)\n"
-                "else:\n"
-                "    binary = dest / 'typos'\n"
-                "    binary.write_text('#!/bin/sh\\necho typos\\n')\n"
-                "    binary.chmod(0o755)\n"
-            )
-            uname.write_text(f"#!/bin/sh\necho {arch}\n")
-            for path in (curl, tar, uname):
-                path.chmod(0o755)
-            triple = {
-                "x86_64": "x86_64-unknown-linux-musl",
-                "aarch64": "aarch64-unknown-linux-musl",
-                "arm64": "aarch64-unknown-linux-musl",
-            }.get(arch, "unused")
-            environment = {
-                **os.environ,
-                "PATH": f"{root}:{os.environ.get('PATH', os.defpath)}",
-                "TOOL_LOG": str(log),
-                "CURL_STATUS": str(curl_status),
-                "POLICY_TOOL": tool or "",
-                "DENY_VERSION": "0.20.2",
-                "TRIPLE": triple,
-            }
-            result = subprocess.run(
-                [str(POLICY), tool] if tool is not None else [str(POLICY)],
-                env=environment,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
-            return result, calls
-
-    def test_usage_without_a_tool(self):
-        result, calls = self.run_policy(None)
-        self.assertEqual(result.returncode, 2)
-        self.assertEqual(calls, [])
-        self.assertIn("usage:", result.stderr)
-
-    def test_deny_downloads_the_pinned_musl_archive(self):
-        result, calls = self.run_policy("deny")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, "deny\n")
-        url = calls[0][1][-1]
-        self.assertEqual(
-            url,
-            "https://github.com/EmbarkStudios/cargo-deny/releases/download/"
-            "0.20.2/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz",
-        )
-
-    def test_typos_downloads_the_pinned_musl_archive(self):
-        result, calls = self.run_policy("typos")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, "typos\n")
-        url = calls[0][1][-1]
-        self.assertEqual(
-            url,
-            "https://github.com/crate-ci/typos/releases/download/"
-            "v1.50.1/typos-v1.50.1-x86_64-unknown-linux-musl.tar.gz",
-        )
-
-    def test_aarch64_selects_the_matching_musl_triple(self):
-        result, calls = self.run_policy("typos", arch="aarch64")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("aarch64-unknown-linux-musl", calls[0][1][-1])
-
-    def test_unsupported_architecture_does_not_download(self):
-        result, calls = self.run_policy("deny", arch="ppc64le")
+    def test_missing_nix_fails_without_running_a_command(self):
+        result, calls = self.run_runner("cargo", "fmt", with_nix=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(calls, [])
-        self.assertIn("unsupported architecture", result.stderr)
+        self.assertIn("Nix", result.stderr)

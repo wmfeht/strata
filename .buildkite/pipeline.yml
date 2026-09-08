@@ -1,9 +1,10 @@
 # Strata CI. Point the Buildkite pipeline's initial steps at:
 #   buildkite-agent pipeline upload .buildkite/pipeline.yml
 #
-# Agents must be Linux amd64 with Docker. Script tests also need Python 3;
-# cargo-deny and typos need curl. Quality and E2E share the pinned
-# tests/e2e/Dockerfile toolchain image (GTK 4.14, Rust 1.98.1).
+# Agents must be Linux amd64 with Nix (flakes) and Docker. Quality and policy
+# steps enter the flake development shell via `nix develop`. E2E still uses the
+# pinned tests/e2e/Dockerfile toolchain image (GTK 4.14, Rust 1.98.1) so visual
+# baselines stay on the dated Ubuntu snapshot.
 
 env:
   CARGO_TERM_COLOR: always
@@ -56,7 +57,7 @@ steps:
 
       - label: ":lock: cargo-deny"
         key: deny
-        command: .buildkite/policy.sh deny
+        command: .buildkite/run.sh cargo deny check
         timeout_in_minutes: 10
         retry:
           automatic:
@@ -65,7 +66,7 @@ steps:
 
       - label: ":pencil2: typos"
         key: typos
-        command: .buildkite/policy.sh typos
+        command: .buildkite/run.sh typos
         timeout_in_minutes: 5
         retry:
           automatic:

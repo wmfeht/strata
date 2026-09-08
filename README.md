@@ -385,7 +385,7 @@ Plain-text and source previews are different: they stay in process because they 
 
 ## Development and documentation
 
-Build requirements are the latest stable Rust toolchain, a C toolchain, `pkg-config`, GTK 4.12+, GtkSourceView 5, Poppler GLib, and Fontconfig. On Arch:
+Build requirements are the latest stable Rust toolchain, a C toolchain, `pkg-config`, GTK 4.12+, GtkSourceView 5, Poppler GLib, and Fontconfig. With Nix, `nix develop` enters the same pinned environment CI uses. On Arch:
 
 ```bash
 sudo pacman -S --needed base-devel rust bubblewrap ffmpeg ffmpegthumbnailer fontconfig \
