@@ -26,10 +26,10 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("cargo clippy --all-targets --all-features --locked", text)
         self.assertIn("cargo test --all-targets --all-features --locked", text)
         self.assertIn("env -u DISPLAY -u WAYLAND_DISPLAY GDK_BACKEND=x11", text)
-        self.assertIn("python3 -m unittest discover -s scripts -p 'test_*.py'", text)
+        self.assertIn(".buildkite/run.sh python3 -m unittest discover -s scripts -p 'test_*.py'", text)
         self.assertIn(".buildkite/run.sh cargo deny check", text)
         self.assertIn(".buildkite/run.sh typos", text)
-        self.assertIn("./scripts/e2e.sh", text)
+        self.assertIn(".buildkite/run.sh ./scripts/e2e.sh", text)
         self.assertIn("target/e2e-artifacts/**/*", text)
 
     def test_shell_scripts_have_valid_syntax(self):
@@ -46,6 +46,7 @@ class FlakeTests(unittest.TestCase):
         self.assertIn("pkgs.poppler", text)
         self.assertIn("pkgs.fontconfig", text)
         self.assertIn("pkgs.cargo-deny", text)
+        self.assertIn("pkgs.python3", text)
         self.assertIn("pkgs.typos", text)
 
     def test_lockfile_pins_nixpkgs_and_rust_overlay(self):
