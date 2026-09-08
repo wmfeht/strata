@@ -20,8 +20,8 @@ use std::{
 use gtk::glib;
 
 use super::{
-    ArchiveError, ArchiveOutcome, ExtractLimits, compress_entries, extract_archive,
-    extract_with_limits,
+    ArchiveError, ArchiveOutcome, ExtractLimits, cancel_after_next_copy_chunk, compress_entries,
+    extract_archive, extract_with_limits,
     libarchive::{TarFilter, WriteArchive},
     process_umask, validated_archive_path, write_staged_archive,
 };
@@ -62,10 +62,6 @@ fn run_archive(request: ArchiveRequest) -> Vec<OperationEvent> {
     events.borrow().clone()
 }
 
-fn run_compression(request: ArchiveRequest) -> Vec<OperationEvent> {
-    run_archive(request)
-}
-
 fn compress_request(
     source: &Path,
     destination: &Path,
@@ -76,7 +72,6 @@ fn compress_request(
     ArchiveRequest {
         id: OperationRequestId(1),
         destination: Location::local(destination),
-        password: None,
         action: ArchiveAction::Compress {
             sources: vec![Location::local(source)],
             archive_name: name.to_owned(),
@@ -94,18 +89,12 @@ fn compression_stages(destination: &Path) -> Result<Vec<OsString>, Box<dyn Error
         .collect())
 }
 
-fn write_fixture(
-    path: &Path,
-    entries: &[PathBuf],
-    format: ArchiveFormat,
-    password: Option<&str>,
-) -> Result<(), String> {
+fn write_fixture(path: &Path, entries: &[PathBuf], format: ArchiveFormat) -> Result<(), String> {
     let file = fs::File::create(path).map_err(|error| error.to_string())?;
     compress_entries(
         file,
         entries,
         format,
-        password,
         &Arc::new(AtomicUsize::new(0)),
         &never_cancelled(),
     )
@@ -190,6 +179,28 @@ fn extract_with_password(
     )
 }
 
+fn decode_hex(hex: &str) -> Result<Vec<u8>, Box<dyn Error>> {
+    let hex: String = hex.chars().filter(|ch| !ch.is_whitespace()).collect();
+    if !hex.len().is_multiple_of(2) {
+        return Err("hex fixture must have an even length".into());
+    }
+    (0..hex.len())
+        .step_by(2)
+        .map(|index| u8::from_str_radix(&hex[index..index + 2], 16).map_err(Into::into))
+        .collect()
+}
+
+fn extract_request(archive: &Path, destination: &Path, password: Option<String>) -> ArchiveRequest {
+    ArchiveRequest {
+        id: OperationRequestId(1),
+        destination: Location::local(destination),
+        action: ArchiveAction::Extract {
+            archive: Location::local(archive),
+            password,
+        },
+    }
+}
+
 fn extract_limited(
     archive: &Path,
     destination: &Path,
@@ -205,11 +216,17 @@ fn extract_limited(
     )
 }
 
-/// Expansion ratio still applies when the archive is larger than the old 64 MiB window.
+/// Expansion ratio still applies to archives larger than the 64 MiB floor.
 #[test]
 fn bomb_ratio_large_compressed_size() {
     let mut budget = super::ExtractBudget {
-        limits: ExtractLimits::for_test(u64::MAX, 100, 16, 200),
+        limits: ExtractLimits {
+            max_total_bytes: u64::MAX,
+            max_members: 100,
+            max_path_depth: 16,
+            bomb_ratio: 200,
+            ratio_floor: 64 * 1024 * 1024,
+        },
         compressed_size: 65 * 1024 * 1024,
         written: 0,
         members: 0,
@@ -220,6 +237,37 @@ fn bomb_ratio_large_compressed_size() {
     let error = budget
         .add_bytes(1)
         .expect_err("a 65 MiB archive should still be refused past 200×");
+    assert!(
+        matches!(
+            error,
+            ArchiveError::Failed(ref message)
+                if message.contains("expands beyond the safety limit")
+        ),
+        "{error:?}"
+    );
+}
+
+/// Below the ratio floor, expansion is bounded only by free space.
+#[test]
+fn bomb_ratio_below_floor() {
+    let mut budget = super::ExtractBudget {
+        limits: ExtractLimits {
+            max_total_bytes: u64::MAX,
+            max_members: 100,
+            max_path_depth: 16,
+            bomb_ratio: 1,
+            ratio_floor: 64 * 1024,
+        },
+        compressed_size: 1,
+        written: 0,
+        members: 0,
+    };
+    budget
+        .add_bytes(64 * 1024)
+        .expect("writes up to the floor should be allowed regardless of ratio");
+    let error = budget
+        .add_bytes(1)
+        .expect_err("the first byte past the floor should apply the ratio");
     assert!(
         matches!(
             error,

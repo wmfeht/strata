@@ -1574,12 +1574,7 @@ impl Browser {
         true
     }
 
-    pub fn archive(
-        self: &Rc<Self>,
-        destination: Location,
-        password: Option<String>,
-        action: ArchiveAction,
-    ) {
+    pub fn archive(self: &Rc<Self>, destination: Location, action: ArchiveAction) {
         if let ArchiveAction::Compress { sources, .. } = &action
             && sources.is_empty()
         {
@@ -1597,7 +1592,6 @@ impl Browser {
             ArchiveRequest {
                 id: request_id,
                 destination,
-                password,
                 action,
             },
             self.operation_callback(request_id, false, HashSet::new()),

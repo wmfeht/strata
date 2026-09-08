@@ -1,11 +1,12 @@
 use std::{env, path::PathBuf, process::Command};
 
 fn main() {
-    glib_build_tools::compile_resources(&["data"], "data/strata.gresource.xml", "strata.gresource");
+    pkg_config::Config::new()
+        .atleast_version("3.7.2")
+        .probe("libarchive")
+        .expect("libarchive >= 3.7.2 development files are required (libarchive-dev / libarchive)");
 
-    // libarchive2-sys vendors libarchive with RAR5 BLAKE2 support but only
-    // rustc-links libb2 on Apple targets. Linux needs the same library.
-    println!("cargo::rustc-link-lib=b2");
+    glib_build_tools::compile_resources(&["data"], "data/strata.gresource.xml", "strata.gresource");
 
     println!("cargo::rerun-if-env-changed=STRATA_BUILD_COMMIT");
     track_git_metadata();

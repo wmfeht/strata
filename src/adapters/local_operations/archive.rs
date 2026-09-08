@@ -2,7 +2,7 @@
 
 //! Local archive compression and extraction for [`LocalOperationProvider`].
 //!
-//! Builds and unpacks archives through the `libarchive2` crate. Compression writes
+//! Builds and unpacks archives through the system libarchive. Compression writes
 //! through a `0o600` staging file and publishes the result only after the
 //! encoder finishes, so a partial archive is never left at the destination
 //! name. Extraction pins the destination directory and creates members with
@@ -43,7 +43,10 @@ use std::{
     time::UNIX_EPOCH,
 };
 
-use libarchive::{ArchiveMember, MemberKind, ReadArchive, WriteArchive};
+#[cfg(test)]
+use core::cell::Cell;
+
+use libarchive::{ArchiveMember, DecoderError, MemberKind, ReadArchive, WriteArchive};
 
 use gtk::{gio, glib};
 
@@ -141,15 +144,30 @@ fn process_umask() -> u32 {
 /// Dispatches on [`ArchiveAction`]. Returns a [`LoadHandle`] that cancels
 /// in-flight work when dropped.
 pub(super) fn archive(request: ArchiveRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
-    match &request.action {
-        ArchiveAction::Compress { .. } => compress(request, emit),
-        ArchiveAction::Extract { .. } => extract(request, emit),
+    match request.action {
+        ArchiveAction::Compress {
+            sources,
+            archive_name,
+            format,
+            conflict,
+        } => compress(
+            request.id,
+            request.destination,
+            sources,
+            archive_name,
+            format,
+            conflict,
+            emit,
+        ),
+        ArchiveAction::Extract { archive, password } => {
+            extract(request.id, request.destination, archive, password, emit)
+        }
     }
 }
 
-/// Compresses the sources in `request` into a new local archive.
+/// Compresses `sources` into a new local archive in `destination`.
 ///
-/// Validates that the destination is a local path and that the archive stem
+/// Validates that `destination` is a local path and that the archive stem
 /// passes [`validate_basename`], then writes the published filename through
 /// [`write_staged_archive`]. Progress is polled every 100 ms via
 /// [`archive_progress_timer`]. Returns a [`LoadHandle`] that cancels in-flight
@@ -168,36 +186,30 @@ pub(super) fn archive(request: ArchiveRequest, emit: Rc<dyn Fn(OperationEvent)>)
 /// [`Archived`]: OperationEvent::Archived
 /// [`Failed`]: OperationEvent::Failed
 /// [`Cancelled`]: OperationEvent::Cancelled
-fn compress(request: ArchiveRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
+fn compress(
+    request_id: OperationRequestId,
+    destination: Location,
+    sources: Vec<Location>,
+    archive_name: String,
+    format: ArchiveFormat,
+    conflict: TransferConflict,
+    emit: Rc<dyn Fn(OperationEvent)>,
+) -> LoadHandle {
     let cancelled = Arc::new(AtomicBool::new(false));
     let task_cancelled = cancelled.clone();
     let work_cancelled = cancelled.clone();
-    let destination = request.destination.clone();
-    let ArchiveAction::Compress {
-        sources,
-        archive_name,
-        format,
-        conflict,
-    } = request.action
-    else {
-        emit(OperationEvent::Failed {
-            request_id: request.id,
-            message: "Internal error: compression received a non-compress request".to_owned(),
-        });
-        return LoadHandle::new(|| {});
-    };
     let source_locations = sources.clone();
     let _task = glib::MainContext::default().spawn_local(async move {
-        let Some(dest_dir) = request.destination.native_path().map(Path::to_path_buf) else {
+        let Some(dest_dir) = destination.native_path().map(Path::to_path_buf) else {
             emit(OperationEvent::Failed {
-                request_id: request.id,
+                request_id,
                 message: "Archive destination must be a local path".to_owned(),
             });
             return;
         };
         if let Err(message) = validate_basename(&archive_name) {
             emit(OperationEvent::Failed {
-                request_id: request.id,
+                request_id,
                 message: message.to_owned(),
             });
             return;
@@ -210,19 +222,16 @@ fn compress(request: ArchiveRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHa
             .collect();
         if entries.is_empty() {
             emit(OperationEvent::Failed {
-                request_id: request.id,
+                request_id,
                 message: "Nothing to compress".to_owned(),
             });
             return;
         }
         let total = Arc::new(AtomicUsize::new(0));
         let progress = Arc::new(AtomicUsize::new(0));
-        emit(OperationEvent::ArchiveStarted {
-            request_id: request.id,
-        });
+        emit(OperationEvent::ArchiveStarted { request_id });
         let timer_id =
-            archive_progress_timer(request.id, &progress, &total, &task_cancelled, &emit);
-        let password = request.password.clone();
+            archive_progress_timer(request_id, &progress, &total, &task_cancelled, &emit);
         let work_progress = progress.clone();
         let work_total = total.clone();
         let result = write_staged_archive(
@@ -233,39 +242,29 @@ fn compress(request: ArchiveRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHa
             move |file| {
                 let count = count_archive_files(&entries, &work_cancelled)?;
                 work_total.store(count, Ordering::Relaxed);
-                compress_entries(
-                    file,
-                    &entries,
-                    format,
-                    password.as_deref(),
-                    &work_progress,
-                    &work_cancelled,
-                )
+                compress_entries(file, &entries, format, &work_progress, &work_cancelled)
             },
         )
         .await;
         timer_id.remove();
         match result {
             Ok(()) => emit(OperationEvent::Archived {
-                request_id: request.id,
+                request_id,
                 select_name: archive_name,
             }),
             Err(ArchiveError::Cancelled) => emit(cancelled_archive_event(
-                request.id,
+                request_id,
                 destination,
                 Vec::new(),
                 Vec::new(),
                 source_locations,
             )),
-            Err(ArchiveError::Failed(error)) => emit(OperationEvent::Failed {
-                request_id: request.id,
-                message: error,
-            }),
-            // Compression never prompts: a decoder hint here is still a failure.
-            Err(ArchiveError::NeedsPassword(error)) => emit(OperationEvent::Failed {
-                request_id: request.id,
-                message: error,
-            }),
+            Err(ArchiveError::Failed(error) | ArchiveError::NeedsPassword(error)) => {
+                emit(OperationEvent::Failed {
+                    request_id,
+                    message: error,
+                });
+            }
         }
     });
     LoadHandle::new(move || {
@@ -273,7 +272,7 @@ fn compress(request: ArchiveRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHa
     })
 }
 
-/// Extracts the archive in `request` into a local destination directory.
+/// Extracts `archive` into a local `destination` directory.
 ///
 /// Requires both the archive and destination to be local paths. Format is
 /// detected by libarchive from the file bytes, not from the name. Returns a
@@ -295,41 +294,39 @@ fn compress(request: ArchiveRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHa
 /// [`PasswordRequired`]: OperationEvent::PasswordRequired
 /// [`Failed`]: OperationEvent::Failed
 /// [`Cancelled`]: OperationEvent::Cancelled
-fn extract(request: ArchiveRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHandle {
+fn extract(
+    request_id: OperationRequestId,
+    destination: Location,
+    archive: Location,
+    password: Option<String>,
+    emit: Rc<dyn Fn(OperationEvent)>,
+) -> LoadHandle {
     let cancelled = Arc::new(AtomicBool::new(false));
     let task_cancelled = cancelled.clone();
     let work_cancelled = cancelled.clone();
-    let destination = request.destination.clone();
-    let ArchiveAction::Extract { archive } = request.action else {
-        emit(OperationEvent::Failed {
-            request_id: request.id,
-            message: "Internal error: extraction received a non-extract request".to_owned(),
-        });
-        return LoadHandle::new(|| {});
-    };
     let _task = glib::MainContext::default().spawn_local(async move {
         let Some(archive_path) = archive.native_path().map(Path::to_path_buf) else {
             emit(OperationEvent::Failed {
-                request_id: request.id,
+                request_id,
                 message: "Archive must be a local file".to_owned(),
             });
             return;
         };
-        let Some(dest_dir) = request.destination.native_path().map(Path::to_path_buf) else {
+        let Some(dest_dir) = destination.native_path().map(Path::to_path_buf) else {
             emit(OperationEvent::Failed {
-                request_id: request.id,
+                request_id,
                 message: "Extract destination must be a local path".to_owned(),
             });
             return;
         };
-        let password = request.password.clone();
         let progress = Arc::new(AtomicUsize::new(0));
+        // Extract totals stay 0: libarchive is a streaming reader, so ZIP/7z
+        // central-directory counts are not available up front. The progress
+        // view treats a zero total as indeterminate ("N files").
         let total = Arc::new(AtomicUsize::new(0));
-        emit(OperationEvent::ArchiveStarted {
-            request_id: request.id,
-        });
+        emit(OperationEvent::ArchiveStarted { request_id });
         let timer_id =
-            archive_progress_timer(request.id, &progress, &total, &task_cancelled, &emit);
+            archive_progress_timer(request_id, &progress, &total, &task_cancelled, &emit);
         let work_progress = progress.clone();
         let result = gio::spawn_blocking(move || {
             extract_archive(
@@ -344,7 +341,7 @@ fn extract(request: ArchiveRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHan
         timer_id.remove();
         match result {
             Ok(Ok(ArchiveOutcome::Completed(first_name))) => emit(OperationEvent::Archived {
-                request_id: request.id,
+                request_id,
                 select_name: first_name.unwrap_or_default(),
             }),
             Ok(Ok(ArchiveOutcome::Cancelled {
@@ -352,14 +349,14 @@ fn extract(request: ArchiveRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHan
                 failed,
                 not_attempted,
             })) => emit(cancelled_archive_event(
-                request.id,
+                request_id,
                 destination,
                 completed,
                 failed,
                 not_attempted,
             )),
             Ok(Err(ArchiveError::Cancelled)) => emit(cancelled_archive_event(
-                request.id,
+                request_id,
                 destination,
                 Vec::new(),
                 Vec::new(),
@@ -367,17 +364,17 @@ fn extract(request: ArchiveRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHan
             )),
             Ok(Err(ArchiveError::NeedsPassword(_))) => {
                 emit(OperationEvent::PasswordRequired {
-                    request_id: request.id,
+                    request_id,
                     archive,
                     destination,
                 });
             }
             Ok(Err(ArchiveError::Failed(error))) => emit(OperationEvent::Failed {
-                request_id: request.id,
+                request_id,
                 message: error,
             }),
             Err(_) => emit(OperationEvent::Failed {
-                request_id: request.id,
+                request_id,
                 message: "Extraction task panicked".to_owned(),
             }),
         }
@@ -385,14 +382,6 @@ fn extract(request: ArchiveRequest, emit: Rc<dyn Fn(OperationEvent)>) -> LoadHan
     LoadHandle::new(move || {
         cancelled.store(true, Ordering::Relaxed);
     })
-}
-
-fn password_error(message: &str) -> bool {
-    let lower = message.to_ascii_lowercase();
-    lower.contains("password")
-        || lower.contains("passphrase")
-        || lower.contains("encrypt")
-        || lower.contains("decrypt")
 }
 
 /// An opened compression source, re-read from disk relative to its parent
@@ -534,8 +523,9 @@ fn visit_archive_entry<Fd: AsFd>(
 /// ZIP uses deflate for every regular file; libarchive cannot change ZIP
 /// compression after the first header. Passwords are rejected: libarchive
 /// cannot write encrypted archives. 7z rejects symbolic links. File modes are
-/// preserved from the source (masked to `0o7777`); non-UTF-8 paths and link
-/// targets are rejected because libarchive2 writes pathnames as UTF-8.
+/// preserved from the source (masked to `0o7777`). Non-UTF-8 paths and link
+/// targets are refused because libarchive writes pathnames as UTF-8; one such
+/// name aborts the whole archive.
 ///
 /// # Errors
 ///
@@ -548,11 +538,10 @@ fn compress_entries(
     file: std::fs::File,
     entries: &[PathBuf],
     format: ArchiveFormat,
-    password: Option<&str>,
     progress: &Arc<AtomicUsize>,
     cancelled: &AtomicBool,
 ) -> Result<(), ArchiveError> {
-    let mut writer = WriteArchive::create(file, format, password)?;
+    let mut writer = WriteArchive::create(file, format, None)?;
     visit_archive_entries(entries, cancelled, &mut |path, source| {
         match source {
             ArchiveSource::Directory(directory) => {
@@ -579,13 +568,22 @@ fn compress_entries(
                 let metadata = file.metadata().map_err(archive_failed)?;
                 let perm = metadata_perm(&metadata, 0o644);
                 let mtime = file_mtime(&metadata);
-                writer.write_file_header(path, metadata.len(), perm, mtime)?;
-                copy_with_big_buf(
-                    BufReader::with_capacity(COPY_BUF, file),
+                let size = metadata.len();
+                writer.write_file_header(path, size, perm, mtime)?;
+                // Cap the copy at the header size so a file that grows after
+                // `metadata()` cannot overflow libarchive's declared entry.
+                let copied = copy_with_big_buf(
+                    BufReader::with_capacity(COPY_BUF, file).take(size),
                     &mut writer,
                     cancelled,
                     |_| Ok(()),
                 )?;
+                if copied != size {
+                    return Err(archive_failed(format!(
+                        "Source file {} changed size while it was being archived",
+                        path.display()
+                    )));
+                }
                 writer.finish_entry()?;
                 progress.fetch_add(1, Ordering::Relaxed);
             }
@@ -1000,11 +998,32 @@ impl ExtractionDestination {
     /// Returns an error if `path` has no file name, a parent cannot be opened,
     /// or the unlink fails.
     fn remove_file(&self, path: &Path) -> Result<(), String> {
+        self.unlink(path, rustix::fs::AtFlags::empty())
+    }
+
+    /// Unlinks a file or directory created during this extract.
+    ///
+    /// Tries a file unlink first, then `rmdir` when the leaf is a directory.
+    /// Used to roll back members already written if a later member needs a
+    /// password, so a retry does not collide with leftover names.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `path` has no file name, a parent cannot be opened,
+    /// or both unlink attempts fail.
+    fn remove_entry(&self, path: &Path) -> Result<(), String> {
+        match self.unlink(path, rustix::fs::AtFlags::empty()) {
+            Ok(()) => Ok(()),
+            Err(_) => self.unlink(path, rustix::fs::AtFlags::REMOVEDIR),
+        }
+    }
+
+    fn unlink(&self, path: &Path, flags: rustix::fs::AtFlags) -> Result<(), String> {
         let parent = self.open_parent_directory(path)?;
         let name = path
             .file_name()
             .ok_or_else(|| "Archive entry has no file name".to_owned())?;
-        rustix::fs::unlinkat(&parent, name, rustix::fs::AtFlags::empty()).map_err(|error| {
+        rustix::fs::unlinkat(&parent, name, flags).map_err(|error| {
             format!(
                 "Could not remove incomplete extraction {}: {error}",
                 path.display()
@@ -1042,6 +1061,10 @@ const EXTRACT_DISK_RESERVE: u64 = 64 * 1024 * 1024;
 const EXTRACT_MAX_MEMBERS: u32 = 1_000_000;
 const EXTRACT_MAX_PATH_DEPTH: u16 = 256;
 const EXTRACT_BOMB_RATIO: u32 = 200;
+/// Ratio is not applied until this much has been written. Highly compressible
+/// legitimate archives (xz/zstd of zeros or sparse images) routinely exceed
+/// 200:1 while still small; the free-space check already bounds real damage.
+const EXTRACT_BOMB_RATIO_FLOOR: u64 = 64 * 1024 * 1024;
 
 /// Failure or cooperative cancellation of a compress or extract step.
 #[derive(Debug, PartialEq, Eq)]
@@ -1050,9 +1073,10 @@ enum ArchiveError {
     Cancelled,
     /// Encoding, decoding, or filesystem work failed with this message.
     Failed(String),
-    /// libarchive reported an encrypted member that needs a password.
-    /// Separate from [`Failed`] so policy refusals that embed the member
-    /// path (e.g. `.../password-notes/...`) are never mistaken for encryption.
+    /// libarchive reported an encrypted member that a password can decrypt.
+    /// Separate from `Failed` so policy refusals that embed the member path
+    /// (e.g. `.../password-notes/...`) are never mistaken for encryption, and
+    /// so encrypted 7z/RAR (unsupported) fail instead of prompting.
     NeedsPassword(String),
 }
 
@@ -1085,14 +1109,79 @@ fn archive_failed(error: impl std::fmt::Display) -> ArchiveError {
 
 /// Maps a libarchive decoder error to [`ArchiveError`].
 ///
-/// Only decoder errors are inspected for password hints. Policy and
-/// filesystem errors use [`archive_failed`] directly so a member path
-/// containing `password`/`encrypt` never becomes `NeedsPassword`.
-fn libarchive_failed(message: String) -> ArchiveError {
-    if password_error(&message) {
-        ArchiveError::NeedsPassword(message)
+/// Classification uses encryption flags from the entry or archive, plus
+/// whether a password was already supplied. libarchive cannot decrypt 7z or
+/// RAR; those messages contain "not supported"/"unavailable" and become
+/// [`Failed`] so the UI does not prompt in a loop. Policy and filesystem
+/// errors use [`archive_failed`] directly so a member path containing
+/// `password`/`encrypt` never becomes [`NeedsPassword`].
+///
+/// [`Failed`]: ArchiveError::Failed
+/// [`NeedsPassword`]: ArchiveError::NeedsPassword
+fn classify_decoder_error(error: DecoderError, password_supplied: bool) -> ArchiveError {
+    classify_encrypted_failure(error.message, error.encrypted, password_supplied)
+}
+
+fn classify_encrypted_failure(
+    message: String,
+    encrypted: bool,
+    password_supplied: bool,
+) -> ArchiveError {
+    if !encrypted {
+        return ArchiveError::Failed(message);
+    }
+    if decoder_cannot_decrypt(&message) {
+        return ArchiveError::Failed(
+            "This archive is encrypted in a format that cannot be opened".to_owned(),
+        );
+    }
+    if password_supplied {
+        return ArchiveError::Failed("Incorrect password".to_owned());
+    }
+    if passphrase_requested(&message) {
+        return ArchiveError::NeedsPassword(message);
+    }
+    ArchiveError::Failed("This archive is encrypted in a format that cannot be opened".to_owned())
+}
+
+fn decoder_cannot_decrypt(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("not supported") || lower.contains("unavailable")
+}
+
+fn passphrase_requested(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("passphrase") || lower.contains("password")
+}
+
+/// Encrypted ZIP can be decrypted after a prompt; encrypted 7z/RAR cannot.
+fn zip_can_decrypt(archive_path: &Path) -> bool {
+    archive_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(ArchiveFormat::from_extension)
+        == Some(ArchiveFormat::Zip)
+}
+
+fn encrypted_without_password(archive_path: &Path) -> ArchiveError {
+    if zip_can_decrypt(archive_path) {
+        ArchiveError::NeedsPassword("Passphrase required".to_owned())
     } else {
-        ArchiveError::Failed(message)
+        ArchiveError::Failed(
+            "This archive is encrypted in a format that cannot be opened".to_owned(),
+        )
+    }
+}
+
+/// Removes members already written so a password retry does not collide with them.
+fn discard_extracted(
+    destination: &ExtractionDestination,
+    created: impl IntoIterator<Item = PathBuf>,
+) {
+    let mut paths: Vec<PathBuf> = created.into_iter().collect();
+    paths.sort_by_key(|path| std::cmp::Reverse(path.components().count()));
+    for path in paths {
+        let _ = destination.remove_entry(&path);
     }
 }
 
@@ -1186,26 +1275,86 @@ fn cancelled_extract_after_partial_write(
 ///
 /// [`Cancelled`]: ArchiveError::Cancelled
 /// [`Failed`]: ArchiveError::Failed
+enum CopyError {
+    Cancelled,
+    Failed(String),
+    Io(io::Error),
+}
+
+impl From<CopyError> for ArchiveError {
+    fn from(error: CopyError) -> Self {
+        match error {
+            CopyError::Cancelled => Self::Cancelled,
+            CopyError::Failed(message) => Self::Failed(message),
+            CopyError::Io(error) => archive_failed(error),
+        }
+    }
+}
+
+impl From<ArchiveError> for CopyError {
+    fn from(error: ArchiveError) -> Self {
+        match error {
+            ArchiveError::Cancelled => Self::Cancelled,
+            ArchiveError::Failed(message) | ArchiveError::NeedsPassword(message) => {
+                Self::Failed(message)
+            }
+        }
+    }
+}
+
 fn copy_with_big_buf(
     mut reader: impl Read,
     writer: &mut (impl Write + ?Sized),
     cancelled: &AtomicBool,
     mut on_chunk: impl FnMut(u64) -> Result<(), ArchiveError>,
-) -> Result<u64, ArchiveError> {
+) -> Result<u64, CopyError> {
     let mut buf = vec![0u8; COPY_BUF];
     let mut total = 0;
     loop {
-        check_archive_cancelled(cancelled)?;
-        let n = reader.read(&mut buf).map_err(archive_failed)?;
+        check_archive_cancelled(cancelled).map_err(CopyError::from)?;
+        let n = reader.read(&mut buf).map_err(CopyError::Io)?;
         if n == 0 {
             break;
         }
-        writer.write_all(&buf[..n]).map_err(archive_failed)?;
+        writer.write_all(&buf[..n]).map_err(CopyError::Io)?;
+        // Tests request a cancel after this write so incomplete-file cleanup
+        // does not depend on racing a watcher thread.
+        #[cfg(test)]
+        if CANCEL_AFTER_COPY_CHUNK.get() {
+            return Err(CopyError::Cancelled);
+        }
         let n = n as u64;
         total += n;
-        on_chunk(n)?;
+        on_chunk(n).map_err(CopyError::from)?;
     }
     Ok(total)
+}
+
+#[cfg(test)]
+thread_local! {
+    static CANCEL_AFTER_COPY_CHUNK: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Arranges for the next [`copy_with_big_buf`] write to return [`Cancelled`].
+///
+/// Resets when dropped so later tests on this thread are unaffected.
+///
+/// [`Cancelled`]: ArchiveError::Cancelled
+#[cfg(test)]
+#[must_use]
+fn cancel_after_next_copy_chunk() -> CancelAfterCopyChunk {
+    CANCEL_AFTER_COPY_CHUNK.set(true);
+    CancelAfterCopyChunk
+}
+
+#[cfg(test)]
+struct CancelAfterCopyChunk;
+
+#[cfg(test)]
+impl Drop for CancelAfterCopyChunk {
+    fn drop(&mut self) {
+        CANCEL_AFTER_COPY_CHUNK.set(false);
+    }
 }
 
 /// Starts a 100 ms timer that emits [`OperationEvent::ArchiveProgress`].
@@ -1296,10 +1445,10 @@ impl ExtractNameResolver {
 #[derive(Clone, Debug)]
 struct ExtractLimits {
     max_total_bytes: u64,
-    max_member_bytes: u64,
     max_members: u32,
     max_path_depth: u16,
     bomb_ratio: u32,
+    ratio_floor: u64,
 }
 
 impl ExtractLimits {
@@ -1307,10 +1456,10 @@ impl ExtractLimits {
         let available = available_bytes(destination)?.saturating_sub(EXTRACT_DISK_RESERVE);
         Ok(Self {
             max_total_bytes: available,
-            max_member_bytes: available,
             max_members: EXTRACT_MAX_MEMBERS,
             max_path_depth: EXTRACT_MAX_PATH_DEPTH,
             bomb_ratio: EXTRACT_BOMB_RATIO,
+            ratio_floor: EXTRACT_BOMB_RATIO_FLOOR,
         })
     }
 
@@ -1323,10 +1472,10 @@ impl ExtractLimits {
     ) -> Self {
         Self {
             max_total_bytes,
-            max_member_bytes: max_total_bytes,
             max_members,
             max_path_depth,
             bomb_ratio,
+            ratio_floor: 0,
         }
     }
 }
@@ -1359,9 +1508,7 @@ impl ExtractBudget {
     }
 
     fn check_claimed_size(&self, size: u64) -> Result<(), ArchiveError> {
-        if size > self.limits.max_member_bytes
-            || self.written.saturating_add(size) > self.limits.max_total_bytes
-        {
+        if self.written.saturating_add(size) > self.limits.max_total_bytes {
             return Err(archive_failed(
                 "This archive is larger than the free space available at the destination",
             ));
@@ -1371,20 +1518,20 @@ impl ExtractBudget {
 
     fn add_bytes(&mut self, n: u64) -> Result<(), ArchiveError> {
         self.written = self.written.saturating_add(n);
-        if self.written > self.limits.max_total_bytes || n > self.limits.max_member_bytes {
+        if self.written > self.limits.max_total_bytes {
             return Err(archive_failed(
                 "This archive is larger than the free space available at the destination",
             ));
         }
-        // The ratio always applies: padding the archive to look large is how a
-        // bomb would otherwise fill the disk.
-        let max = self
-            .compressed_size
-            .saturating_mul(u64::from(self.limits.bomb_ratio));
-        if self.written > max {
-            return Err(archive_failed(
-                "Refusing to extract a compressed archive that expands beyond the safety limit",
-            ));
+        if self.written > self.limits.ratio_floor {
+            let max = self
+                .compressed_size
+                .saturating_mul(u64::from(self.limits.bomb_ratio));
+            if self.written > max {
+                return Err(archive_failed(
+                    "Refusing to extract a compressed archive that expands beyond the safety limit",
+                ));
+            }
         }
         Ok(())
     }
@@ -1457,14 +1604,19 @@ fn set_file_mtime(file: &std::fs::File, mtime: i64) {
 ///
 /// # Errors
 ///
+/// - [`NeedsPassword`] if a member is encrypted, no password was supplied, and
+///   libarchive can decrypt that format (ZIP). Raised before that member is
+///   created; members already written are discarded so a retry does not
+///   collide with leftover names
 /// - [`Failed`] if the destination cannot be opened, a member name is unsafe,
-///   a member cannot be decrypted, a limit is exceeded, or a create/copy fails
-///   for a reason other than cancellation
+///   encryption is unsupported (7z/RAR), a password is wrong, a limit is
+///   exceeded, or a create/copy fails for a reason other than cancellation
 ///
 /// Cancellation is returned as [`ArchiveOutcome::Cancelled`], not [`Cancelled`].
 ///
 /// [`Cancelled`]: ArchiveError::Cancelled
 /// [`Failed`]: ArchiveError::Failed
+/// [`NeedsPassword`]: ArchiveError::NeedsPassword
 fn extract_archive(
     archive_path: &Path,
     dest_dir: &Path,
@@ -1516,15 +1668,16 @@ fn extract_archive_with_limits(
     limits: ExtractLimits,
 ) -> Result<ArchiveOutcome<Option<String>>, ArchiveError> {
     let compressed_size = std::fs::metadata(archive_path)
-        .map(|metadata| metadata.len())
-        .unwrap_or(0);
+        .map_err(archive_failed)?
+        .len();
     let mut budget = ExtractBudget {
         limits,
         compressed_size,
         written: 0,
         members: 0,
     };
-    let mut archive = ReadArchive::open(archive_path, password).map_err(libarchive_failed)?;
+    let password_supplied = password.is_some();
+    let mut archive = ReadArchive::open(archive_path, password).map_err(archive_failed)?;
     let mut resolver = ExtractNameResolver::new();
     let mut first_name = None;
     let mut completed = Vec::new();
@@ -1540,11 +1693,16 @@ fn extract_archive_with_limits(
                 not_attempted: Vec::new(),
             });
         }
-        let Some(member) = archive.next_member().map_err(libarchive_failed)? else {
+        let Some(member) = archive
+            .next_member()
+            .map_err(|error| classify_decoder_error(error, password_supplied))?
+        else {
             break;
         };
         if is_root_placeholder(&member) {
-            archive.skip_data().map_err(libarchive_failed)?;
+            archive
+                .skip_data()
+                .map_err(|error| classify_decoder_error(error, password_supplied))?;
             continue;
         }
         if cancelled.load(Ordering::Relaxed) {
@@ -1572,6 +1730,10 @@ fn extract_archive_with_limits(
                 .next()
                 .map(|component| component.as_os_str().to_string_lossy().into_owned());
         }
+        if member.encrypted && !password_supplied {
+            discard_extracted(destination, extracted.values().cloned());
+            return Err(encrypted_without_password(archive_path));
+        }
         if is_hardlink {
             let target_name = member.hardlink_target.as_deref().ok_or_else(|| {
                 archive_failed(format!(
@@ -1580,14 +1742,18 @@ fn extract_archive_with_limits(
                 ))
             })?;
             let original = validated_archive_os_path(target_name)?;
-            archive.skip_data().map_err(libarchive_failed)?;
+            archive
+                .skip_data()
+                .map_err(|error| classify_decoder_error(error, password_supplied))?;
             pending_hardlinks.push((path, outpath, original));
             continue;
         }
         let created = match member.kind {
             MemberKind::Directory => {
                 destination.create_directories(&outpath)?;
-                archive.skip_data().map_err(libarchive_failed)?;
+                archive
+                    .skip_data()
+                    .map_err(|error| classify_decoder_error(error, password_supplied))?;
                 outpath
             }
             MemberKind::Symlink => {
@@ -1601,7 +1767,9 @@ fn extract_archive_with_limits(
                     )));
                 }
                 let created = destination.create_symlink(&outpath, target)?;
-                archive.skip_data().map_err(libarchive_failed)?;
+                archive
+                    .skip_data()
+                    .map_err(|error| classify_decoder_error(error, password_supplied))?;
                 created
             }
             MemberKind::Special => {
@@ -1618,20 +1786,28 @@ fn extract_archive_with_limits(
                     drop(outfile);
                     let removed = destination.remove_file(&created);
                     return match error {
-                        ArchiveError::Cancelled => Ok(cancelled_extract_after_partial_write(
+                        CopyError::Cancelled => Ok(cancelled_extract_after_partial_write(
                             dest_dir,
                             &created,
                             completed,
                             Vec::new(),
                             removed,
                         )),
-                        // `copy_with_big_buf` errors never embed the member
-                        // path (libarchive message, OS error, or fixed budget
-                        // text), so a password hint here is a decoder failure.
-                        ArchiveError::Failed(message) if password_error(&message) => {
-                            Err(ArchiveError::NeedsPassword(message))
+                        CopyError::Io(error) => {
+                            if let Some(decoder) = error
+                                .get_ref()
+                                .and_then(|inner| inner.downcast_ref::<DecoderError>())
+                            {
+                                Err(classify_encrypted_failure(
+                                    decoder.message.clone(),
+                                    member.encrypted,
+                                    password_supplied,
+                                ))
+                            } else {
+                                Err(archive_failed(error))
+                            }
                         }
-                        failed => Err(failed),
+                        CopyError::Failed(message) => Err(ArchiveError::Failed(message)),
                     };
                 }
                 if let Some(mtime) = member.mtime {

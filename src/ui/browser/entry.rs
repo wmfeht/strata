@@ -182,7 +182,7 @@ pub(super) fn entry_matches(value: &str, show_hidden: bool, query: &str) -> bool
 }
 
 pub(super) fn icon_for_name(name: &str) -> &'static str {
-    if is_extractable_archive(name) {
+    if is_extractable_archive(name) || is_compressed_stream(name) {
         return crate::assets::icons::FILE_ARCHIVE;
     }
     let extension = name
@@ -203,6 +203,15 @@ pub(super) fn icon_for_name(name: &str) -> &'static str {
         ) => crate::assets::icons::FILE_CODE,
         _ => crate::assets::icons::DOCUMENTS,
     }
+}
+
+/// Single-stream compressed files that the extract reader does not open
+/// (libarchive's raw format is disabled) but that still use the archive icon.
+fn is_compressed_stream(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    [".gz", ".xz", ".bz2", ".zst"]
+        .iter()
+        .any(|suffix| lower.ends_with(suffix))
 }
 
 pub(super) fn item_count_label(count: usize) -> String {

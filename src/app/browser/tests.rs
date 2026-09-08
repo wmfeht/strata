@@ -782,9 +782,9 @@ fn cancelling_extraction_keeps_progress_until_the_worker_reports_cancellation() 
 
     browser.archive(
         Location::local("/fixture"),
-        None,
         ArchiveAction::Extract {
             archive: Location::local("/fixture/archive.zip"),
+            password: None,
         },
     );
 

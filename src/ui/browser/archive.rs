@@ -45,11 +45,14 @@ use std::rc::Rc;
 /// that do not match [`ArchiveFormat::extension`] are left intact.
 fn normalized_archive_name(name: &str, format: ArchiveFormat) -> String {
     let suffix = format!(".{}", format.extension());
-    if name.len() >= suffix.len() && name[name.len() - suffix.len()..].eq_ignore_ascii_case(&suffix)
-    {
-        name[..name.len() - suffix.len()].to_owned()
-    } else {
-        name.to_owned()
+    let Some(idx) = name.len().checked_sub(suffix.len()) else {
+        return name.to_owned();
+    };
+    // `str::get` returns `None` when `idx` is not a char boundary, so a
+    // CJK or emoji name shorter than, or not ending in, the suffix cannot panic.
+    match name.get(idx..) {
+        Some(tail) if tail.eq_ignore_ascii_case(&suffix) => name[..idx].to_owned(),
+        _ => name.to_owned(),
     }
 }
 
@@ -83,6 +86,7 @@ impl ViewState {
         subtitle: &str,
         confirm_label: &str,
         block_dismiss: Option<Rc<dyn Fn() -> bool>>,
+        on_cancel: Option<Rc<dyn Fn()>>,
     ) -> (gtk::Box, gtk::Button, Rc<dyn Fn()>) {
         let Some(ModalHost {
             overlay: window_overlay,
@@ -112,12 +116,22 @@ impl ViewState {
             let root = blurred_root.clone();
             move || dismiss_modal_layer(&layer, &overlay, root.as_ref())
         });
-        let dismiss_for_cancel = dismiss.clone();
+        let cancel: Rc<dyn Fn()> = Rc::new({
+            let dismiss = dismiss.clone();
+            let on_cancel = on_cancel.clone();
+            move || {
+                if let Some(on_cancel) = &on_cancel {
+                    on_cancel();
+                }
+                dismiss();
+            }
+        });
+        let dismiss_for_cancel = cancel.clone();
         layout.cancel.connect_clicked(move |_| dismiss_for_cancel());
-        let dismiss_for_close = dismiss.clone();
+        let dismiss_for_close = cancel.clone();
         layout.close.connect_clicked(move |_| dismiss_for_close());
         let escape = gtk::EventControllerKey::new();
-        let dismiss_for_escape = dismiss.clone();
+        let dismiss_for_escape = cancel;
         escape.connect_key_pressed(move |_, key, _, _| {
             if key == gtk::gdk::Key::Escape {
                 dismiss_for_escape();
@@ -157,7 +171,6 @@ impl ViewState {
         if !archive_has_collision(&destination, &final_name) {
             self.browser.archive(
                 destination,
-                None,
                 ArchiveAction::Compress {
                     sources,
                     archive_name,
@@ -215,7 +228,6 @@ impl ViewState {
             dismiss_modal_layer(&replaced_layer, &replaced_overlay, replaced_root.as_ref());
             browser.archive(
                 destination.clone(),
-                None,
                 ArchiveAction::Compress {
                     sources: sources.clone(),
                     archive_name: archive_name.clone(),
@@ -290,6 +302,7 @@ impl ViewState {
             &subtitle,
             "Compress",
             Some(Rc::new(move || dirty_name.text() != compress_default_name)),
+            None,
         );
 
         let name_label = form_label("Archive name");
@@ -368,9 +381,9 @@ impl ViewState {
         };
         self.browser.archive(
             parent,
-            None,
             ArchiveAction::Extract {
                 archive: entry.location,
+                password: None,
             },
         );
     }
@@ -403,6 +416,7 @@ impl ViewState {
             &entry.display_name,
             "Extract here",
             Some(Rc::new(move || dirty_field.text() != extract_initial_text)),
+            None,
         );
         let field_label = form_label("Destination folder");
         body.append(&field_label);
@@ -471,9 +485,9 @@ impl ViewState {
             extract_state.pending_navigate.replace(Some(dest.clone()));
             extract_state.browser.archive(
                 dest,
-                None,
                 ArchiveAction::Extract {
                     archive: extract_entry.location.clone(),
+                    password: None,
                 },
             );
             dismiss_for_confirm();
@@ -499,11 +513,18 @@ impl ViewState {
         let password_entry = form_password_entry();
         password_entry.set_show_peek_icon(true);
         let dirty_password = password_entry.clone();
+        let drop_pending_navigate = {
+            let state = self.clone();
+            Rc::new(move || {
+                state.pending_navigate.take();
+            }) as Rc<dyn Fn()>
+        };
         let (body, confirm, dismiss) = self.build_archive_modal(
             "Extract",
             &subtitle,
             "Extract",
             Some(Rc::new(move || !dirty_password.text().is_empty())),
+            Some(drop_pending_navigate),
         );
 
         let password_label = form_label("Password");
@@ -519,9 +540,9 @@ impl ViewState {
             dismiss_for_confirm();
             browser.archive(
                 destination.clone(),
-                password,
                 ArchiveAction::Extract {
                     archive: archive.clone(),
+                    password,
                 },
             );
         });

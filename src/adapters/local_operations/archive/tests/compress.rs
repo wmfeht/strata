@@ -2,9 +2,10 @@
 
 use std::{
     error::Error,
+    ffi::OsStr,
     fs,
     io::Write as _,
-    os::unix::fs::PermissionsExt as _,
+    os::unix::{ffi::OsStrExt as _, fs::PermissionsExt as _},
     path::Path,
     sync::{
         Arc,
@@ -17,7 +18,7 @@ use gtk::glib;
 use super::{
     ArchiveAction, ArchiveError, ArchiveFormat, ArchiveRequest, OperationEvent, OperationRequestId,
     TransferConflict, WriteArchive, compress_request, compression_stages, extract_here,
-    lock_main_context, never_cancelled, process_umask, run_archive, run_compression, write_fixture,
+    lock_main_context, never_cancelled, process_umask, run_archive, write_fixture,
     write_staged_archive,
 };
 use crate::model::Location;
@@ -39,7 +40,7 @@ fn formats_round_trip() -> Result<(), Box<dyn Error>> {
 
     for format in CREATABLE_FORMATS {
         let archive = root.path().join("archive");
-        write_fixture(&archive, std::slice::from_ref(&source), format, None)?;
+        write_fixture(&archive, std::slice::from_ref(&source), format)?;
         let extracted = root.path().join("extracted");
         let _ = fs::remove_dir_all(&extracted);
         fs::create_dir(&extracted)?;
@@ -57,71 +58,41 @@ fn formats_round_trip() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Compression rejects a password because libarchive cannot write encrypted archives.
+/// Writing more bytes than the header declared fails with a size-specific message.
 #[test]
-fn compress_password() -> Result<(), Box<dyn Error>> {
+fn payload_exceeds_declared_size() -> Result<(), Box<dyn Error>> {
     let root = tempfile::tempdir()?;
-    for format in CREATABLE_FORMATS {
-        let file = fs::File::create(root.path().join(format.archive_filename("archive")))?;
-        match WriteArchive::create(file, format, Some("pass")) {
-            Ok(_) => panic!("{format:?} should reject a password"),
-            Err(error) => assert!(
-                error.contains("password"),
-                "{format:?} error should mention passwords, got {error}"
-            ),
-        }
-    }
-    Ok(())
-}
-
-/// Traditional ZipCrypto without a password asks the UI to prompt rather than failing.
-///
-/// libarchive's write passphrase does not emit ZipCrypto, so this uses a
-/// `zip -P` fixture instead of [`write_fixture`].
-#[test]
-fn encrypted_without_password() -> Result<(), Box<dyn Error>> {
-    let _serial = lock_main_context()?;
-    let root = tempfile::tempdir()?;
-    let archive = root.path().join("secret.zip");
-    fs::write(
-        &archive,
-        decode_hex(
-            "504b03040a0009000000dc88275de5e8a25c12000000060000000a001c007365637265742e747874\
-             555409000380359f6a80359f6a75780b000104e803000004e8030000db26c604d38904646ebbc730\
-             24d7950e708b504b0708e5e8a25c1200000006000000504b01021e030a0009000000dc88275de5e8\
-             a25c12000000060000000a0018000000000001000000a481000000007365637265742e7478745554\
-             05000380359f6a75780b000104e803000004e8030000504b05060000000001000100500000006600\
-             00000000",
-        )?,
+    let mut writer = WriteArchive::create(
+        fs::File::create(root.path().join("archive.zip"))?,
+        ArchiveFormat::Zip,
+        None,
     )?;
-    let destination = root.path().join("extracted");
-    fs::create_dir(&destination)?;
-    let events = run_archive(ArchiveRequest {
-        id: OperationRequestId(1),
-        destination: Location::local(&destination),
-        password: None,
-        action: ArchiveAction::Extract {
-            archive: Location::local(&archive),
-        },
-    });
+    writer.write_file_header(Path::new("file.txt"), 4, 0o644, None)?;
+    let error = writer
+        .write_all(b"12345678")
+        .expect_err("extra payload should be rejected");
     assert!(
-        events
-            .iter()
-            .any(|event| matches!(event, OperationEvent::PasswordRequired { .. })),
-        "events should include PasswordRequired, got {events:?}"
+        error.to_string().contains("exceeded the size"),
+        "error should mention the declared size, got {error}"
     );
     Ok(())
 }
 
-fn decode_hex(hex: &str) -> Result<Vec<u8>, Box<dyn Error>> {
-    let hex: String = hex.chars().filter(|ch| !ch.is_whitespace()).collect();
-    if !hex.len().is_multiple_of(2) {
-        return Err("hex fixture must have an even length".into());
+/// Compression rejects a password because libarchive cannot write encrypted archives.
+///
+/// The check precedes the format match, so one format is enough.
+#[test]
+fn compress_password() -> Result<(), Box<dyn Error>> {
+    let root = tempfile::tempdir()?;
+    let file = fs::File::create(root.path().join("archive.zip"))?;
+    match WriteArchive::create(file, ArchiveFormat::Zip, Some("pass")) {
+        Ok(_) => panic!("ZIP should reject a password"),
+        Err(error) => assert!(
+            error.contains("password"),
+            "error should mention passwords, got {error}"
+        ),
     }
-    (0..hex.len())
-        .step_by(2)
-        .map(|index| u8::from_str_radix(&hex[index..index + 2], 16).map_err(Into::into))
-        .collect()
+    Ok(())
 }
 
 /// ZIP and TAR store a symbolic link as a link, not as a copy of the target.
@@ -135,7 +106,7 @@ fn symlinks_zip_and_tar() -> Result<(), Box<dyn Error>> {
 
     for format in [ArchiveFormat::Zip, ArchiveFormat::Tar, ArchiveFormat::TarGz] {
         let archive = root.path().join("archive");
-        write_fixture(&archive, std::slice::from_ref(&source), format, None)?;
+        write_fixture(&archive, std::slice::from_ref(&source), format)?;
         let extracted = root.path().join("extracted");
         let _ = fs::remove_dir_all(&extracted);
         fs::create_dir(&extracted)?;
@@ -162,7 +133,7 @@ fn seven_z_symlinks() -> Result<(), Box<dyn Error>> {
     let destination = root.path().join("destination");
     fs::create_dir(&destination)?;
 
-    let events = run_compression(compress_request(
+    let events = run_archive(compress_request(
         &source,
         &destination,
         "archive",
@@ -189,7 +160,7 @@ fn escaping_archive_name() -> Result<(), Box<dyn Error>> {
     fs::create_dir(&destination)?;
     fs::write(&source, b"source")?;
 
-    let events = run_compression(compress_request(
+    let events = run_archive(compress_request(
         &source,
         &destination,
         "../outside",
@@ -224,7 +195,7 @@ fn conflict_fail_and_replace() -> Result<(), Box<dyn Error>> {
         )
     };
 
-    let refused = run_compression(request(TransferConflict::FailIfExists));
+    let refused = run_archive(request(TransferConflict::FailIfExists));
     assert!(
         refused
             .iter()
@@ -233,7 +204,7 @@ fn conflict_fail_and_replace() -> Result<(), Box<dyn Error>> {
     assert_eq!(fs::read(&archive)?, b"original");
     assert_eq!(fs::metadata(&archive)?.permissions().mode() & 0o777, 0o640);
 
-    let replaced = run_compression(request(TransferConflict::ReplaceExisting));
+    let replaced = run_archive(request(TransferConflict::ReplaceExisting));
     assert!(
         replaced
             .iter()
@@ -260,10 +231,9 @@ fn failure_preserves_existing() -> Result<(), Box<dyn Error>> {
     fs::create_dir(&destination)?;
     fs::write(&archive, b"original")?;
 
-    let events = run_compression(ArchiveRequest {
+    let events = run_archive(ArchiveRequest {
         id: OperationRequestId(1),
         destination: Location::local(&destination),
-        password: None,
         action: ArchiveAction::Compress {
             sources: vec![Location::local(root.path().join("missing.txt"))],
             archive_name: "existing".to_owned(),
@@ -358,5 +328,38 @@ fn cancel_after_write() -> Result<(), Box<dyn Error>> {
     assert!(matches!(result, Err(ArchiveError::Cancelled)));
     assert_eq!(fs::read(&archive)?, b"original");
     assert!(compression_stages(&destination)?.is_empty());
+    Ok(())
+}
+
+/// libarchive writes pathnames as UTF-8, so a non-UTF-8 member name is refused.
+#[test]
+fn non_utf8_member_name() -> Result<(), Box<dyn Error>> {
+    let root = tempfile::tempdir()?;
+    let source = root.path().join(OsStr::from_bytes(b"caf\xff.txt"));
+    fs::write(&source, b"contents")?;
+    let archive = root.path().join("archive.zip");
+    let error = write_fixture(&archive, std::slice::from_ref(&source), ArchiveFormat::Zip)
+        .expect_err("a non-UTF-8 member name should be refused");
+    assert!(
+        error.contains("UTF-8"),
+        "refusal should mention UTF-8, got {error}"
+    );
+    Ok(())
+}
+
+/// Non-UTF-8 symlink targets are refused rather than rewritten.
+#[test]
+fn non_utf8_link_target() -> Result<(), Box<dyn Error>> {
+    let root = tempfile::tempdir()?;
+    let source = root.path().join("source");
+    fs::create_dir(&source)?;
+    std::os::unix::fs::symlink(OsStr::from_bytes(b"caf\xff"), source.join("link"))?;
+    let archive = root.path().join("archive.zip");
+    let error = write_fixture(&archive, std::slice::from_ref(&source), ArchiveFormat::Zip)
+        .expect_err("a non-UTF-8 link target should be refused");
+    assert!(
+        error.contains("UTF-8") || error.contains("link target"),
+        "refusal should mention the link target, got {error}"
+    );
     Ok(())
 }

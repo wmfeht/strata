@@ -466,6 +466,7 @@ impl ViewState {
             }
             BrowserEvent::RestorationFinished => self.dismiss_file_operation_progress(),
             BrowserEvent::OperationFailed { message } => {
+                self.pending_navigate.take();
                 self.dismiss_file_operation_progress();
                 show_error_dialog(&self.overlay, "Unable to complete operation", message);
             }
@@ -501,6 +502,7 @@ impl ViewState {
                 not_attempted,
                 affected_locations,
             } => {
+                self.pending_navigate.take();
                 let message = format!(
                     "{} completed, {} failed, and {} not attempted.\n\nCompleted changes were not reverted.",
                     item_count_label(*completed),

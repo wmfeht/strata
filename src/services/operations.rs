@@ -189,7 +189,13 @@ pub enum ArchiveAction {
         conflict: TransferConflict,
     },
     /// Unpack `archive` into the request destination.
-    Extract { archive: Location },
+    Extract {
+        archive: Location,
+        /// Passphrase for encrypted ZIP. `None` on the first attempt; a later
+        /// [`OperationEvent::PasswordRequired`] retries with the typed value.
+        /// Encrypted 7z and RAR cannot be decrypted and fail instead of prompting.
+        password: Option<String>,
+    },
 }
 
 /// Compress or extract request sent to [`OperationProvider::archive`].
@@ -198,7 +204,6 @@ pub struct ArchiveRequest {
     pub id: OperationRequestId,
     /// Directory that receives the archive or extracted members.
     pub destination: Location,
-    pub password: Option<String>,
     pub action: ArchiveAction,
 }
 

@@ -170,6 +170,22 @@ fn file_names_map_to_specific_lucide_icons() {
         icon_for_name("backup.tgz"),
         crate::assets::icons::FILE_ARCHIVE
     );
+    assert_eq!(
+        icon_for_name("notes.gz"),
+        crate::assets::icons::FILE_ARCHIVE
+    );
+    assert_eq!(
+        icon_for_name("notes.xz"),
+        crate::assets::icons::FILE_ARCHIVE
+    );
+    assert_eq!(
+        icon_for_name("notes.bz2"),
+        crate::assets::icons::FILE_ARCHIVE
+    );
+    assert_eq!(
+        icon_for_name("notes.zst"),
+        crate::assets::icons::FILE_ARCHIVE
+    );
     assert_eq!(icon_for_name("README.md"), crate::assets::icons::DOCUMENTS);
 }
 

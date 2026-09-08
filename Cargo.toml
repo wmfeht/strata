@@ -23,7 +23,7 @@ gio-unix = "0.22.8"
 glib = "0.22.9"
 gtk = { package = "gtk4", version = "0.11.4", features = ["v4_12"] }
 ignore = "0.4.23"
-libarchive2 = "0.2.1"
+libc = "0.2"
 pangocairo = "0.22.0"
 poppler = { package = "poppler-rs", version = "0.26.0" }
 pulldown-cmark = { version = "0.13", default-features = false }
@@ -42,6 +42,7 @@ zstd = "0.13.3"
 
 [build-dependencies]
 glib-build-tools = "0.22.8"
+pkg-config = "0.3"
 
 [profile.release]
 # Whole-program optimization for the hot listing/sort/insert paths. Build

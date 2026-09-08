@@ -18,6 +18,19 @@ Exactly these forms are valid release tags. The self-updater rejects anything el
 
 The in-app **Preview** channel receives alpha, beta, RC, and stable releases. The **Nightly** channel additionally receives nightly builds. All prerelease kinds, including nightlies, are published manually through the Release workflow.
 
+## Archive notes for the next GitHub release
+
+The first release that ships the libarchive backend should mention these
+user-facing changes in the GitHub release body (they are intentional; see
+[Architecture: Archives](architecture.md)):
+
+- Creating password-protected ZIP (AES-256) and 7z is no longer offered.
+  libarchive cannot write encrypted archives.
+- Extracting encrypted 7z fails with “This archive is encrypted in a format
+  that cannot be opened” instead of prompting. Encrypted ZIP (ZipCrypto and
+  WinZip AES-256, including archives created by earlier Strata versions) still
+  prompts for a password.
+
 ## Publishing a stable release
 
 Run the **Release** workflow from GitHub's Actions tab on the default branch, choose a `bump` (`patch`, `minor`, or `major`), and leave `mode` at its default, `stable`. Once both Linux targets build:

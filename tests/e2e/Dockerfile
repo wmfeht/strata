@@ -14,8 +14,9 @@ RUN printf '%s\n' \
     && apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
     at-spi2-core build-essential ca-certificates dbus-bin dbus-daemon fonts-cantarell \
-    gir1.2-atspi-2.0 imagemagick cmake clang libclang-dev libarchive-dev libb2-dev libfontconfig1-dev libgtk-4-dev \
-    libgtksourceview-5-dev libpoppler-glib-dev librsvg2-common pkg-config python3-gi python3-venv \
+    gir1.2-atspi-2.0 imagemagick libarchive-dev \
+    libfontconfig1-dev libgtk-4-dev libgtksourceview-5-dev libpoppler-glib-dev \
+    librsvg2-common pkg-config python3-gi python3-venv \
     rustup xauth xvfb \
     && rm -rf /var/lib/apt/lists/*
 

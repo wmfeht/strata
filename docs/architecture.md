@@ -139,7 +139,17 @@ Owns mutations, progress, cancellation, conflicts, and partial outcomes. UI code
 
 ### Archives
 
-Compress and extract go through libarchive. The support target is the formats and features libarchive can read or write; anything else is out of scope. That includes writing encrypted ZIP or 7z, which libarchive cannot do. Encrypted archives libarchive can *read* are still extracted after a password prompt.
+Compress and extract go through the system `libarchive.so.13` (≥ 3.7.2). The support target is the formats and filters the allowlist enables; anything else is out of scope. Readers enable ZIP, 7z, TAR, RAR, and RAR5 with gzip, bzip2, xz, and zstd filters — not `support_format_all` / `support_filter_all`, which would register RAR/LHA/CAB/ISO/WARC/mtree readers and `lzop`/`lrzip`/`grzip` filters that `exec` external programs. `ARCHIVE_WARN` from `archive_read_next_header` yields the entry and logs the libarchive message; only `ARCHIVE_FAILED` / `ARCHIVE_FATAL` abort.
+
+Writing encrypted ZIP or 7z is out of scope: libarchive cannot do either. Encrypted ZIP that libarchive can decrypt (ZipCrypto and WinZip AES-256) is extracted after a password prompt. Encrypted 7z and RAR cannot be decrypted and fail instead of prompting. Compression requires UTF-8 member paths and link targets; a non-UTF-8 name in the selection aborts the archive. Extraction copies member names from `archive_entry_pathname_utf8` with `archive_entry_pathname` as fallback, so UTF-8 names are preserved even under a C locale.
+
+User-facing differences versus the previous zip/7z-rust backend, to include in the GitHub release notes for the first version that ships this backend:
+
+- Creating password-protected ZIP (AES-256) and 7z is no longer offered.
+- Extracting encrypted 7z fails with “cannot be opened” instead of prompting.
+- Encrypted ZIP still prompts; WinZip AES-256 archives created by earlier Strata versions still extract.
+
+Archive support links the distribution's `libarchive.so.13`. Codec libraries, libxml2, BLAKE2, and ACL are libarchive's dependencies, resolved by the package manager, not Strata's.
 
 ### Search provider
 
