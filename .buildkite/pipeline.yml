@@ -1,0 +1,89 @@
+# Strata CI. Point the Buildkite pipeline's initial steps at:
+#   buildkite-agent pipeline upload .buildkite/pipeline.yml
+#
+# Agents must be Linux amd64 with Docker. Script tests also need Python 3;
+# cargo-deny and typos need curl. Quality and E2E share the pinned
+# tests/e2e/Dockerfile toolchain image (GTK 4.14, Rust 1.98.1).
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+steps:
+  - group: ":rust: Quality"
+    key: quality
+    steps:
+      - label: ":rust: Format"
+        key: fmt
+        command: .buildkite/run.sh cargo fmt --all --check
+        timeout_in_minutes: 20
+        retry:
+          automatic:
+            - exit_status: -1
+              limit: 2
+
+      - label: ":lint-roller: Clippy"
+        key: clippy
+        command: .buildkite/run.sh cargo clippy --all-targets --all-features --locked -- -D warnings
+        timeout_in_minutes: 30
+        retry:
+          automatic:
+            - exit_status: -1
+              limit: 2
+
+      - label: ":hammer: Tests"
+        key: test
+        command: >-
+          .buildkite/run.sh env -u DISPLAY -u WAYLAND_DISPLAY GDK_BACKEND=x11
+          cargo test --all-targets --all-features --locked
+        timeout_in_minutes: 30
+        retry:
+          automatic:
+            - exit_status: -1
+              limit: 2
+
+  - group: ":mag: Policy"
+    key: policy
+    steps:
+      - label: ":python: Script tests"
+        key: scripts
+        command: python3 -m unittest discover -s scripts -p 'test_*.py'
+        timeout_in_minutes: 5
+        retry:
+          automatic:
+            - exit_status: -1
+              limit: 2
+
+      - label: ":lock: cargo-deny"
+        key: deny
+        command: .buildkite/policy.sh deny
+        timeout_in_minutes: 10
+        retry:
+          automatic:
+            - exit_status: -1
+              limit: 2
+
+      - label: ":pencil2: typos"
+        key: typos
+        command: .buildkite/policy.sh typos
+        timeout_in_minutes: 5
+        retry:
+          automatic:
+            - exit_status: -1
+              limit: 2
+
+  - group: ":checkered_flag: End-to-end"
+    key: e2e-group
+    steps:
+      - label: ":docker: E2E GUI suite"
+        key: e2e
+        command: ./scripts/e2e.sh -p no:cacheprovider --timeout=60 --durations=10
+        timeout_in_minutes: 40
+        env:
+          STRATA_E2E_WORKERS: "2"
+        artifact_paths:
+          - target/e2e-artifacts/**/*
+        retry:
+          automatic:
+            - exit_status: -1
+              limit: 2
