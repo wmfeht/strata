@@ -8,7 +8,7 @@
 - stage: round 1 code complete
 - review_verdict: n/a
 - qa_verdict: n/a
-- head_sha: 017b7ad8c57c5023c8c0f1d99724cd315621c841
+- head_sha: 23df0167f32499c201ab2607af958d0976efa283
 - agent_id: bc-c3da1e3a-1ce9-4809-a069-cfd14f4f1696
 - notes: ZIP `ArchiveReader.password_supplied` mirrors #751. Colliding ZipCrypto CRC maps to `MAYBE_BAD_PASSWORD`. No `events.rs` change. Draft kept.
 
