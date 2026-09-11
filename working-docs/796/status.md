@@ -4,13 +4,13 @@
 - staging_pr: https://github.com/lgse/strata/pull/798 (draft)
 - staging_branch: fix/796-zipcrypto-wrong-password-crc
 - folder: working-docs/796
-- round: 1
-- stage: round 1 QA complete
+- round: 2
+- stage: round 2 code complete
 - review_verdict: approve-with-comments
 - qa_verdict: fail
-- head_sha: 9e59413dedd6806cf4ba097e98412e5ba7fc262b
-- agent_id: bc-ec8afd9e-8ca4-476d-8c0e-01782d5d5676
-- notes: Round 1 QA of 9e59413. Planned stored CRC / AES / 7z / #638 cases passed (decoder 8 + container E2E archive_errors 6). Fail: deflated ZipCrypto collisions (`InvalidInput` corrupt deflate stream, including Info-ZIP `zip -P` on compressible files) still map to INVALID_ARCHIVE. Draft kept. No product patch.
+- head_sha: 055011e57b965aa99c4f7d4fc597aacbf21879d0
+- agent_id: bc-3881b4a8-5bb6-4664-8fae-1f62ac08d4c4
+- notes: Round 2 code on 055011e. Remap InvalidInput inflate failures after a supplied password to MAYBE_BAD_PASSWORD. Deflated ZipCrypto collisions (decoder + E2E) reopen Extract. Stored CRC, AES, 7z, and no-password #638 cases kept green. Draft kept.
 
 ## History
 
@@ -19,3 +19,4 @@
 - round 1 code: complete (bc-c3da1e3a-1ce9-4809-a069-cfd14f4f1696, 2026-09-11) — decoder flag + unit/E2E tests; targeted fmt/clippy/decoder tests + native `test_archive_errors.py`.
 - round 1 review: complete (bc-ad92cc78-4e0e-4763-a2d2-f98dd7aef72c, 2026-09-11) — verdict `approve-with-comments` on a666601; no blockers; nits do not force another code round.
 - round 1 QA: complete (bc-ec8afd9e-8ca4-476d-8c0e-01782d5d5676, 2026-09-11) — verdict `fail` on 9e59413; stored CRC path and planned cases pass; deflated `zip -P` collisions still damaged.
+- round 2 code: complete (bc-3881b4a8-5bb6-4664-8fae-1f62ac08d4c4, 2026-09-11) — InvalidInput inflate remap; deflated ZipCrypto decoder + E2E coverage; product SHA 055011e.
