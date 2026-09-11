@@ -8,9 +8,9 @@
 - stage: round 2 code complete
 - review_verdict: approve-with-comments
 - qa_verdict: fail
-- head_sha: 055011e57b965aa99c4f7d4fc597aacbf21879d0
+- head_sha: 5e096e34c1b86c84d1442362e82b2d236edafd4b
 - agent_id: bc-3881b4a8-5bb6-4664-8fae-1f62ac08d4c4
-- notes: Round 2 code on 055011e. Remap InvalidInput inflate failures after a supplied password to MAYBE_BAD_PASSWORD. Deflated ZipCrypto collisions (decoder + E2E) reopen Extract. Stored CRC, AES, 7z, and no-password #638 cases kept green. Draft kept.
+- notes: Round 2 code complete. Product 055011e remaps InvalidInput inflate failures after a supplied password to MAYBE_BAD_PASSWORD. Deflated ZipCrypto collisions (decoder + E2E) reopen Extract. Stored CRC, AES, 7z, and no-password #638 cases kept green. Draft kept.
 
 ## History
 
