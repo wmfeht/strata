@@ -26,7 +26,7 @@ use super::{
 mod tests;
 
 const INVALID_ARCHIVE: &str = "This file is not a valid archive or is damaged.";
-// Plain-header 7z cannot distinguish wrong passwords from content decode failures.
+// Plain-header 7z and ZipCrypto cannot distinguish a wrong password from a content checksum failure.
 const MAYBE_BAD_PASSWORD: &str = "The password may be incorrect.";
 
 pub(super) fn zip_error(error: zip::result::ZipError) -> ArchiveError {
@@ -146,6 +146,7 @@ pub(super) fn extract_zip_from_archive(
     if let Some(claimed) = archive.decompressed_size() {
         session.preflight_claimed_size(claimed)?;
     }
+    let password_supplied = password.is_some();
     let pw_bytes = password.map(str::as_bytes);
     let mut next_index = 0;
     let result = (|| {
@@ -161,7 +162,10 @@ pub(super) fn extract_zip_from_archive(
                 .ok_or_else(|| format!("Refusing unsafe ZIP path: {name}"))?;
             let declared_size = entry.size();
             let directory = entry.is_dir();
-            let mut reader = ArchiveReader::new(&mut entry);
+            let mut reader = ArchiveReader {
+                inner: &mut entry,
+                password_supplied,
+            };
             let content = if directory {
                 MemberContent::Directory
             } else {
