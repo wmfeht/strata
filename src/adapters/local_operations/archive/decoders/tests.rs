@@ -1249,11 +1249,11 @@ fn aes_zip_wrong_password_stays_invalid_password() -> Result<(), Box<dyn Error>>
 fn unencrypted_zip_checksum_failure_stays_damaged() -> Result<(), Box<dyn Error>> {
     let root = tempfile::tempdir()?;
     let archive = root.path().join("archive.zip");
-    super::super::fixtures::write_zip_stored(&archive, &[("payload.txt", b"payload")])?;
+    super::super::fixtures::write_zip_stored(&archive, &[("file.txt", b"checksum-payload")])?;
     let mut bytes = fs::read(&archive)?;
     let offset = bytes
-        .windows(7)
-        .position(|bytes| bytes == b"payload")
+        .windows(16)
+        .position(|bytes| bytes == b"checksum-payload")
         .expect("stored payload");
     bytes[offset] ^= 1;
     fs::write(&archive, &bytes)?;
