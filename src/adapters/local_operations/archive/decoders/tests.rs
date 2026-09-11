@@ -1098,11 +1098,12 @@ fn write_zipcrypto(
     password: &[u8],
     name: &str,
     contents: &[u8],
+    compression: zip::CompressionMethod,
 ) -> Result<(), Box<dyn Error>> {
     use zip::unstable::write::FileOptionsExt;
     let mut writer = zip::ZipWriter::new(fs::File::create(path)?);
     let options = zip::write::SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Stored)
+        .compression_method(compression)
         .with_deprecated_encryption(password)?;
     writer.start_file(name, options)?;
     writer.write_all(contents)?;
@@ -1131,14 +1132,23 @@ fn zipcrypto_crc_collision(archive_path: &Path) -> Result<String, Box<dyn Error>
 
 fn zipcrypto_fixture(root: &Path) -> Result<std::path::PathBuf, Box<dyn Error>> {
     let archive = root.join("password.zip");
-    write_zipcrypto(&archive, b"zipsecret", "some.txt", b"hello from zipcrypto")?;
+    write_zipcrypto(
+        &archive,
+        b"zipsecret",
+        "some.txt",
+        b"hello from zipcrypto",
+        zip::CompressionMethod::Stored,
+    )?;
     Ok(archive)
 }
 
-#[test]
-fn zipcrypto_header_collision_is_retryable() -> Result<(), Box<dyn Error>> {
+fn zipcrypto_collision_is_retryable(
+    compression: zip::CompressionMethod,
+    contents: &[u8],
+) -> Result<(), Box<dyn Error>> {
     let root = tempfile::tempdir()?;
-    let archive = zipcrypto_fixture(root.path())?;
+    let archive = root.path().join("password.zip");
+    write_zipcrypto(&archive, b"zipsecret", "some.txt", contents, compression)?;
     let collision = zipcrypto_crc_collision(&archive)?;
 
     let destination = tempfile::tempdir()?;
@@ -1149,7 +1159,7 @@ fn zipcrypto_header_collision_is_retryable() -> Result<(), Box<dyn Error>> {
         Some(&collision),
         &Arc::new(AtomicUsize::new(0)),
     ) else {
-        panic!("ZipCrypto collision {collision} extracted");
+        panic!("ZipCrypto {compression:?} collision {collision} extracted");
     };
     assert_eq!(error.to_string(), super::MAYBE_BAD_PASSWORD);
     assert!(destination.path().read_dir()?.next().is_none());
@@ -1162,11 +1172,21 @@ fn zipcrypto_header_collision_is_retryable() -> Result<(), Box<dyn Error>> {
         Some("zipsecret"),
         &Arc::new(AtomicUsize::new(0)),
     )?)?;
-    assert_eq!(
-        fs::read(correct.path().join("some.txt"))?,
-        b"hello from zipcrypto"
-    );
+    assert_eq!(fs::read(correct.path().join("some.txt"))?, contents);
     Ok(())
+}
+
+#[test]
+fn zipcrypto_header_collision_is_retryable() -> Result<(), Box<dyn Error>> {
+    zipcrypto_collision_is_retryable(zip::CompressionMethod::Stored, b"hello from zipcrypto")
+}
+
+#[test]
+fn zipcrypto_deflated_header_collision_is_retryable() -> Result<(), Box<dyn Error>> {
+    zipcrypto_collision_is_retryable(
+        zip::CompressionMethod::Deflated,
+        &b"hello from zipcrypto\n".repeat(64),
+    )
 }
 
 #[test]
@@ -1311,6 +1331,24 @@ fn checksum_failure_without_a_password_remains_damaged() {
     assert_eq!(
         super::archive_read_error(error, false).to_string(),
         super::INVALID_ARCHIVE
+    );
+}
+
+#[test]
+fn corrupt_deflate_stream_without_a_password_stays_damaged() {
+    let error = io::Error::new(io::ErrorKind::InvalidInput, "corrupt deflate stream");
+    assert_eq!(
+        super::archive_read_error(error, false).to_string(),
+        super::INVALID_ARCHIVE
+    );
+}
+
+#[test]
+fn corrupt_deflate_stream_after_a_password_is_retryable() {
+    let error = io::Error::new(io::ErrorKind::InvalidInput, "corrupt deflate stream");
+    assert_eq!(
+        super::archive_read_error(error, true).to_string(),
+        super::MAYBE_BAD_PASSWORD
     );
 }
 

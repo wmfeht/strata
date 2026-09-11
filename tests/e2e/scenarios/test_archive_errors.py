@@ -121,18 +121,25 @@ def _zipcrypto_encrypt(password, data):
     return bytes(out)
 
 
-def _write_zipcrypto(path, password, name, contents):
+def _raw_deflate(data):
+    compressor = zlib.compressobj(level=9, wbits=-15)
+    return compressor.compress(data) + compressor.flush()
+
+
+def _write_zipcrypto(path, password, name, contents, *, deflated=False):
     crc = zlib.crc32(contents) & 0xFFFFFFFF
+    payload = _raw_deflate(contents) if deflated else contents
     header = os.urandom(11) + bytes([(crc >> 24) & 0xFF])
-    encrypted = _zipcrypto_encrypt(password, header + contents)
+    encrypted = _zipcrypto_encrypt(password, header + payload)
     name_b = name.encode("utf-8")
     flags = 0x0001
+    method = 8 if deflated else 0
     local = struct.pack(
         "<IHHHHHIIIHH",
         0x04034B50,
         20,
         flags,
-        0,
+        method,
         0,
         0,
         crc,
@@ -148,7 +155,7 @@ def _write_zipcrypto(path, password, name, contents):
         20,
         20,
         flags,
-        0,
+        method,
         0,
         0,
         crc,
@@ -187,16 +194,25 @@ def _zipcrypto_crc_collision(path, member="some.txt"):
             if "Bad password" in str(error):
                 continue
             return str(candidate)
-        except zipfile.BadZipFile:
+        except (zipfile.BadZipFile, OSError, zlib.error):
             return str(candidate)
     raise AssertionError("no ZipCrypto CRC collision in 0..4096")
 
 
-def test_zipcrypto_collision_reopens_extract_dialog(strata):
+@pytest.mark.parametrize(
+    "deflated,contents",
+    [
+        pytest.param(False, b"hello from zipcrypto", id="stored"),
+        pytest.param(True, b"hello from zipcrypto\n" * 64, id="deflated"),
+    ],
+)
+def test_zipcrypto_collision_reopens_extract_dialog(strata, deflated, contents):
     fixture = strata.fixture
     archive_name = "password.zip"
     archive_path = fixture.path(archive_name)
-    _write_zipcrypto(archive_path, b"zipsecret", "some.txt", b"hello from zipcrypto")
+    _write_zipcrypto(
+        archive_path, b"zipsecret", "some.txt", contents, deflated=deflated
+    )
     collision = _zipcrypto_crc_collision(archive_path)
     strata.keyboard.press("ctrl+r")
     strata.pointer.right_click(strata.entry(archive_name))
@@ -235,5 +251,5 @@ def test_zipcrypto_collision_reopens_extract_dialog(strata):
     strata.pointer.click(strata.dialog_button("Extract"))
     extracted = fixture.path("some.txt")
     strata.wait(lambda: extracted.exists(), "the archive to extract with the correct password")
-    assert extracted.read_text() == "hello from zipcrypto"
+    assert extracted.read_text() == contents.decode()
     strata.wait(lambda: strata.dialog() is None, "extraction progress dismissal")

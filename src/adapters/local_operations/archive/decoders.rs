@@ -70,7 +70,7 @@ fn archive_read_error(error: std::io::Error, password_supplied: bool) -> std::io
     if password_supplied
         && (matches!(
             error.kind(),
-            ErrorKind::InvalidData | ErrorKind::UnexpectedEof
+            ErrorKind::InvalidData | ErrorKind::UnexpectedEof | ErrorKind::InvalidInput
         ) || checksum_failed)
     {
         return std::io::Error::new(ErrorKind::InvalidData, MAYBE_BAD_PASSWORD);
