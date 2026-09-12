@@ -18,10 +18,10 @@ Observed on this snapshot (Ubuntu 24.04.4 LTS, user `ubuntu`, uid/gid
 | --- | --- |
 | CPUs / RAM | 4 logical CPUs, 15 GiB RAM, no swap |
 | Rust | 1.98.1 at `/usr/local/cargo` (`CARGO_HOME=/usr/local/cargo`, `RUSTUP_HOME=/usr/local/rustup`) |
-| Components | `rustfmt`, `clippy` installed; `cargo-deny` and `typos` are not |
+| Components | `rustfmt`, `clippy` installed; `cargo-deny` and `typos` come from `install` (`cargo install`) |
 | GTK | GTK 4.14.5, GtkSourceView 5.12.0, Poppler 24.02.0 |
 | Headless X | `xvfb-run`, `Xvfb`, `at-spi2-core`, `python3-gi`, `gir1.2-atspi-2.0`, `dbus-daemon`, ImageMagick `import`, Cantarell fonts |
-| E2E venv | `/opt/e2e-venv` (pytest 9.1.1); the start script links it to `/workspace/target/e2e-venv` |
+| E2E venv | `/workspace/target/e2e-venv` (pytest 9.1.1), created by `install`. There is no `/opt/e2e-venv`. |
 | Docker | 29.1.3 (`docker.io`), no Podman |
 | Docker daemon | `fuse-overlayfs`, `iptables: false`, `ip6tables: false`, `bridge: none` |
 
@@ -37,20 +37,16 @@ git checkout -B <branch> origin/main
 ## Confirm the start script ran
 
 The personal environment `start` script (`/tmp/cursor/start-user/start-user.sh`)
-must have exited 0. It:
-
-1. Creates `/workspace/target` and links `/workspace/target/e2e-venv` → `/opt/e2e-venv`.
-2. Starts `dockerd` if `docker info` fails, using `/etc/docker/daemon.json`.
-3. Runs `sudo chmod 666 /var/run/docker.sock`.
-
-If Docker is down later in the session, restart it the same way. Do not
-enable the default bridge or iptables; this nested VM does not provide
-them.
+must have exited 0. Snapshot restore leaves `/var/run/docker.pid` (and
+containerd pid files) whose PIDs belong to unrelated processes or to
+nothing. `start` must delete those pid files unless the live process
+`comm` is exactly `dockerd` or `containerd`, then start `dockerd` if
+`docker info` fails. Do not enable the default bridge; `iptables: true`
+in a missing `daemon.json` is only a last-resort write.
 
 ```bash
 sudo docker info >/dev/null
-ls -l /workspace/target/e2e-venv
-test -x /opt/e2e-venv/bin/python
+test -x /workspace/target/e2e-venv/bin/python
 ```
 
 `./scripts/check.sh` is useful for format and Clippy, but it unsets
@@ -136,8 +132,8 @@ The first `ensure` pull can take a minute; later runs reuse
 Do not recover a missing published base by `docker build` with context
 `tests/e2e`.
 
-Native debugging (`./scripts/e2e-native.sh`) can use the preinstalled
-`/opt/e2e-venv` and host GTK 4.14.5. It does not replace
+Native debugging (`./scripts/e2e-native.sh`) can use
+`/workspace/target/e2e-venv` and host GTK 4.14.5. It does not replace
 `./scripts/e2e.sh`.
 
 ## What not to do
