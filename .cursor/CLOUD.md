@@ -82,8 +82,18 @@ pass; GitHub Actions still runs those jobs.
 
 ## End-to-end container suite
 
-`./scripts/e2e.sh` is the pre-push gate. It builds
-`tests/e2e/Dockerfile` and runs the suite inside that image.
+`./scripts/e2e.sh` is the pre-push gate. It reuses a verified base
+(`python3 scripts/e2e_base.py ensure` pulls the published image) and
+runs the suite inside that container. Do not bake
+`tests/e2e/Dockerfile` during Cloud Agent `install`.
+
+The recipe at `tests/e2e/Dockerfile` is repository-root context and
+BuildKit-only (`COPY tests/e2e/install-packages.sh` and `RUN --mount`).
+`docker build -f tests/e2e/Dockerfile tests/e2e` fails with
+`file not found in build context` for `install-packages.sh`. This VM
+has no `docker-buildx` plugin, so the legacy builder also cannot apply
+`--mount`. Explicit local rebuilds are
+`python3 scripts/e2e_base.py build` and require BuildKit.
 
 This VM's Docker daemon has **no default `bridge` network**. A stock
 `docker build` cannot resolve apt hosts and fails with `Temporary
@@ -121,9 +131,10 @@ as the CI runner. Override only when debugging:
 STRATA_E2E_WORKERS=1 PATH="/tmp/docker-hostnet:$PATH" ./scripts/e2e.sh -n 0
 ```
 
-First image build installs GTK, Xvfb, and Rust 1.98.1 from the pinned
-Ubuntu snapshot and takes several minutes. Later runs reuse
+The first `ensure` pull can take a minute; later runs reuse
 `target/e2e-container`. Failure artifacts land in `target/e2e-artifacts`.
+Do not recover a missing published base by `docker build` with context
+`tests/e2e`.
 
 Native debugging (`./scripts/e2e-native.sh`) can use the preinstalled
 `/opt/e2e-venv` and host GTK 4.14.5. It does not replace
@@ -139,6 +150,8 @@ Native debugging (`./scripts/e2e-native.sh`) can use the preinstalled
 - Do not change `/etc/docker/daemon.json` to enable `bridge` or
   `iptables` unless you are prepared to recover `dockerd`. The host
   network wrapper is the supported workaround.
+- Do not `docker build -f tests/e2e/Dockerfile tests/e2e`. COPY paths
+  are relative to the checkout root, and the recipe needs BuildKit.
 - Do not push until format, Clippy, the isolated Rust suite, and
   `./scripts/e2e.sh` have all passed.
 
