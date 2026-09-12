@@ -48,7 +48,8 @@ jobs:
           git fetch --prune "${UPSTREAM_REPO}" "+refs/heads/main:refs/remotes/upstream/main"
           upstream="$(git rev-parse refs/remotes/upstream/main)"
 
-          git checkout --force --detach "${upstream}"
+          git checkout --force -B main origin/main
+          git reset --hard "${upstream}"
           mkdir -p "$(dirname "${WORKFLOW_FILE}")"
           cp "${saved}" "${WORKFLOW_FILE}"
           git add -- "${WORKFLOW_FILE}"
