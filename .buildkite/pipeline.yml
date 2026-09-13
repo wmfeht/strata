@@ -1,14 +1,15 @@
 # Strata CI. Point the Buildkite pipeline's initial steps at:
 #   buildkite-agent pipeline upload .buildkite/pipeline.yml
 #
-# Agents must be Linux amd64 with Nix (flakes) and Docker. Quality and policy
-# steps enter the flake development shell via `nix develop`. E2E still uses the
-# pinned tests/e2e/Dockerfile toolchain image (GTK 4.14, Rust 1.98.1) so visual
-# baselines stay on the dated Ubuntu snapshot.
+# Agents must be Linux amd64 with mise and Docker. Host steps use the toolchain
+# pinned in mise.toml. Quality and E2E compile in the published environment
+# (`scripts/quality.sh` and `scripts/e2e.sh`) so GTK tests and visual baselines
+# stay on the dated Ubuntu snapshot.
 
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
+  STRATA_CONTAINER_ENGINE: docker
 
 steps:
   - group: ":rust: Quality"
@@ -16,7 +17,7 @@ steps:
     steps:
       - label: ":rust: Format"
         key: fmt
-        command: .buildkite/run.sh cargo fmt --all --check
+        command: .buildkite/run.sh ./scripts/quality.sh fmt
         timeout_in_minutes: 20
         retry:
           automatic:
@@ -25,7 +26,7 @@ steps:
 
       - label: ":lint-roller: Clippy"
         key: clippy
-        command: .buildkite/run.sh cargo clippy --all-targets --all-features --locked -- -D warnings
+        command: .buildkite/run.sh ./scripts/quality.sh clippy
         timeout_in_minutes: 30
         retry:
           automatic:
@@ -34,9 +35,7 @@ steps:
 
       - label: ":hammer: Tests"
         key: test
-        command: >-
-          .buildkite/run.sh env -u DISPLAY -u WAYLAND_DISPLAY GDK_BACKEND=x11
-          cargo test --all-targets --all-features --locked
+        command: .buildkite/run.sh ./scripts/quality.sh test
         timeout_in_minutes: 30
         retry:
           automatic:
