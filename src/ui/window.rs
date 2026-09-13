@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 
 use std::{
     cell::{Cell, RefCell},
@@ -19,7 +19,8 @@ use crate::{
 
 use super::{
     browser::{
-        BrowserView, PeekBehavior, PinStatus, file_drop_action, locations_from_file_list_value,
+        BrowserView, PeekBehavior, PinStatus, PreparedFileDrop, WeakBrowserView, file_drop_action,
+        file_drop_commit, locations_from_file_list_value, prepare_file_drop_target,
         show_error_dialog,
     },
     browser_modes::{BrowserDensity, BrowserMode},
@@ -30,7 +31,10 @@ use super::{
 mod composition;
 mod devices;
 mod keyboard;
+mod open_argument;
 mod sidebar;
+
+pub use open_argument::present_open;
 
 use sidebar::PlaceNavigation;
 pub(super) use sidebar::build_sidebar;
@@ -80,26 +84,17 @@ fn mouse_history_action(button: u32) -> Option<MouseHistoryAction> {
 }
 
 pub fn present(application: &gtk::Application) {
-    present_target(application, None, Vec::new(), false);
+    present_target(application, None, Vec::new(), false, true);
 }
 
-pub fn present_location(application: &gtk::Application, location: Option<PathBuf>) {
-    present_target(
-        application,
-        location.map(Location::local),
-        Vec::new(),
-        false,
-    );
-}
-
-/// Opens the window an `org.freedesktop.FileManager1` caller asked for: the
-/// directory holding the named items, with those items selected.
+/// Opens the requested directory with the named items selected.
 pub fn present_reveal(application: &gtk::Application, request: RevealRequest) {
     present_target(
         application,
         Some(request.directory),
         request.selection,
         request.properties,
+        true,
     );
 }
 
@@ -129,12 +124,13 @@ fn browser_for_window() -> BrowserView {
     browser
 }
 
-fn present_target(
+pub(super) fn present_target(
     application: &gtk::Application,
     location: Option<Location>,
     selection: Vec<String>,
     properties: bool,
-) {
+    auto_navigate: bool,
+) -> BrowserView {
     let present_started = std::time::Instant::now();
     crate::assets::register_icon_theme();
     let theme_manager = super::theme::ThemeManager::shared();
@@ -154,25 +150,29 @@ fn present_target(
     let content = composition::WindowContent::new(&window, &theme_manager);
     let update_notice = content.bind(&window, &theme_manager);
     let browser = content.browser.clone();
+    browser.connect_navigation_cleanup(window.upcast_ref());
     schedule_after_first_paint(&window, &content.sidebar);
     content.connect_cleanup(&window);
     window.present();
     crate::metrics::mark_window_presented();
-    let pending_location = location.unwrap_or_else(|| Location::local(home_directory()));
-    if !selection.is_empty() {
-        browser.select_after_load(selection, properties);
+    if auto_navigate {
+        let pending_location = location.unwrap_or_else(|| Location::local(home_directory()));
+        if !selection.is_empty() {
+            browser.select_after_load(selection, properties);
+        }
+        let idle_browser = browser.clone();
+        glib::idle_add_local_once(move || {
+            let started = std::time::Instant::now();
+            idle_browser.navigate_location(pending_location);
+            tracing::debug!(
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "present navigation started"
+            );
+        });
     }
-    let idle_browser = browser.clone();
-    glib::idle_add_local_once(move || {
-        let started = std::time::Instant::now();
-        idle_browser.navigate_location(pending_location);
-        tracing::debug!(
-            elapsed_ms = started.elapsed().as_millis() as u64,
-            "present navigation started"
-        );
-    });
     super::portal_preferences::schedule_offer(&window);
     schedule_due_update_check(&theme_manager, &update_notice);
+    browser
 }
 
 fn schedule_after_first_paint(window: &gtk::ApplicationWindow, sidebar: &SidebarView) {
@@ -213,6 +213,25 @@ fn schedule_due_update_check(
         });
     });
 }
+pub(super) fn bind_sidebar_text_size(paned: &gtk::Paned) {
+    ThemeManager::shared().bind_interface_scale(paned, |widget, scale| {
+        let paned = widget.downcast_ref::<gtk::Paned>().expect("sidebar split");
+        if paned.position() > 0 {
+            paned.set_position(scaled_sidebar_width(paned, scale));
+        }
+    });
+}
+
+fn scaled_sidebar_width(paned: &gtk::Paned, scale: f64) -> i32 {
+    let preferred = (f64::from(SIDEBAR_WIDTH) * scale).round() as i32;
+    let available = if paned.width() > 0 {
+        paned.width() / 2
+    } else {
+        preferred
+    };
+    preferred.min(available).max(MIN_SIDEBAR_WIDTH)
+}
+
 fn animate_sidebar(
     paned: &gtk::Paned,
     sidebar: &gtk::Widget,
@@ -224,7 +243,11 @@ fn animate_sidebar(
     generation.set(animation_id);
     animating.set(true);
     paned.set_shrink_start_child(true);
-    let target = if expanded { SIDEBAR_WIDTH } else { 0 };
+    let target = if expanded {
+        scaled_sidebar_width(paned, ThemeManager::shared().interface_scale())
+    } else {
+        0
+    };
     let start = paned.position();
     if expanded {
         sidebar.set_visible(true);
@@ -435,6 +458,24 @@ pub(super) fn is_sidebar_focus_shortcut(
         && matches!(key, gtk::gdk::Key::b | gtk::gdk::Key::B)
 }
 
+pub(super) fn is_context_menu_shortcut(
+    key: gtk::gdk::Key,
+    modifiers: gtk::gdk::ModifierType,
+) -> bool {
+    let modifiers = modifiers
+        & (gtk::gdk::ModifierType::SHIFT_MASK
+            | gtk::gdk::ModifierType::CONTROL_MASK
+            | gtk::gdk::ModifierType::ALT_MASK
+            | gtk::gdk::ModifierType::SUPER_MASK
+            | gtk::gdk::ModifierType::HYPER_MASK
+            | gtk::gdk::ModifierType::META_MASK);
+    match key {
+        gtk::gdk::Key::Menu => modifiers.is_empty(),
+        gtk::gdk::Key::F10 => modifiers == gtk::gdk::ModifierType::SHIFT_MASK,
+        _ => false,
+    }
+}
+
 fn sidebar_focus_direction(key: gtk::gdk::Key) -> Option<gtk::DirectionType> {
     match key {
         gtk::gdk::Key::Left => Some(gtk::DirectionType::Left),
@@ -503,6 +544,7 @@ pub(super) fn build_appearance_menu(
     view: &BrowserView,
     controller: &Rc<Browser>,
     preferences: Rc<super::theme::ThemeManager>,
+    preview: &super::preview::PreviewDrawer,
 ) -> gtk::MenuButton {
     let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
     content.add_css_class("appearance-menu");
@@ -599,6 +641,35 @@ pub(super) fn build_appearance_menu(
     content.append(&columns);
     content.append(&icons);
     content.append(&list);
+    let (row, check, _) = appearance_row(
+        crate::assets::icons::EYE,
+        "Preview panel",
+        "Space",
+        preview.is_enabled(),
+    );
+    let preview_toggle = gtk::ToggleButton::builder()
+        .child(&row)
+        .has_frame(false)
+        .build();
+    preview_toggle.add_css_class("appearance-option");
+    preview_toggle.add_css_class("preview-panel-option");
+    super::accessibility::set_label(&preview_toggle, "Preview panel");
+    preview_toggle.set_tooltip_text(Some("Toggle preview panel while browsing (Space)"));
+    let actions = gio::SimpleActionGroup::new();
+    actions.add_action(&preview.action());
+    preview_toggle.insert_action_group("preview", Some(&actions));
+    preview_toggle.set_action_name(Some("preview.preview-panel"));
+    preview_toggle
+        .bind_property("active", &check, "visible")
+        .sync_create()
+        .build();
+    let closing = popover_weak.clone();
+    preview_toggle.connect_clicked(move |_| {
+        if let Some(popover) = closing.upgrade() {
+            popover.popdown();
+        }
+    });
+    content.append(&preview_toggle);
 
     content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     append_menu_heading(&content, "DENSITY");
@@ -650,6 +721,52 @@ pub(super) fn build_appearance_menu(
     content.append(&airy);
 
     content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+    append_menu_heading(&content, "TEXT SIZE");
+    let text_controls = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    text_controls.add_css_class("appearance-text-size");
+    let sample = gtk::Label::new(Some("Aa"));
+    sample.add_css_class("appearance-text-sample");
+    text_controls.append(&sample);
+    let stepper = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    stepper.add_css_class("appearance-text-stepper");
+    stepper.set_hexpand(true);
+    stepper.set_halign(gtk::Align::End);
+    text_controls.append(&stepper);
+    for (icon, tooltip, delta) in [
+        (
+            crate::assets::icons::MINUS,
+            "Decrease text size (Ctrl+−)",
+            -1,
+        ),
+        (crate::assets::icons::PLUS, "Increase text size (Ctrl++)", 1),
+    ] {
+        let image = crate::assets::primary_icon(icon, 16);
+        image.set_halign(gtk::Align::Center);
+        image.set_valign(gtk::Align::Center);
+        let button = gtk::Button::builder().child(&image).build();
+        button.add_css_class("appearance-text-step");
+        button.set_tooltip_text(Some(tooltip));
+        super::accessibility::set_label(&button, tooltip);
+        let manager = preferences.clone();
+        button.connect_clicked(move |_| manager.set_text_size(manager.text_size().stepped(delta)));
+        stepper.append(&button);
+    }
+    let reset_size = gtk::Button::new();
+    reset_size.add_css_class("appearance-text-value");
+    reset_size.set_hexpand(true);
+    reset_size.set_tooltip_text(Some("Reset text size (Ctrl+0)"));
+    preferences.bind_preference(&reset_size, ThemeManager::text_size, |widget, size| {
+        widget
+            .downcast_ref::<gtk::Button>()
+            .expect("text size reset")
+            .set_label(&format!("{} px", size.root_font_px()));
+    });
+    let manager = preferences.clone();
+    reset_size.connect_clicked(move |_| manager.set_text_size(super::theme::TextSize::default()));
+    stepper.insert_child_after(&reset_size, stepper.first_child().as_ref());
+    content.append(&text_controls);
+
+    content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     content.append(&group_by_type);
     let (hidden, hidden_check, hidden_icon) = appearance_option_with_shortcut(
         if hidden_files_shown {
@@ -687,9 +804,28 @@ pub(super) fn build_appearance_menu(
     });
     content.append(&hidden);
 
-    popover.set_child(Some(&content));
+    let scroll = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Automatic)
+        .vscrollbar_policy(gtk::PolicyType::Automatic)
+        .propagate_natural_width(true)
+        .propagate_natural_height(true)
+        .max_content_height(600)
+        .child(&content)
+        .build();
+    let anchor = button.downgrade();
+    let constrained = scroll.downgrade();
+    popover.connect_show(move |_| {
+        if let (Some(anchor), Some(scroll)) = (anchor.upgrade(), constrained.upgrade())
+            && let Some(window) = anchor.root().and_downcast::<gtk::Window>()
+        {
+            scroll.set_max_content_height((window.height() - anchor.height() - 48).max(1));
+            scroll.set_max_content_width((window.width() - 24).max(1));
+        }
+    });
+    popover.set_child(Some(&scroll));
     button.set_child(Some(&button_icon));
     button.add_css_class("header-action");
+    button.set_cursor_from_name(Some("pointer"));
     button
 }
 
@@ -717,6 +853,22 @@ fn appearance_option_with_shortcut(
     checked: bool,
     sensitive: bool,
 ) -> (gtk::Button, gtk::Image, gtk::Image) {
+    let (row, check, option) = appearance_row(icon, label, shortcut, checked);
+    let button = gtk::Button::builder()
+        .child(&row)
+        .sensitive(sensitive)
+        .build();
+    button.add_css_class("appearance-option");
+    button.set_has_frame(false);
+    (button, check, option)
+}
+
+fn appearance_row(
+    icon: &str,
+    label: &str,
+    shortcut: &str,
+    checked: bool,
+) -> (gtk::Box, gtk::Image, gtk::Image) {
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     let check = crate::assets::primary_icon(crate::assets::icons::CHECK, 16);
     check.set_visible(checked);
@@ -732,13 +884,7 @@ fn appearance_option_with_shortcut(
         row.append(&shortcut);
     }
     row.append(&check);
-    let button = gtk::Button::builder()
-        .child(&row)
-        .sensitive(sensitive)
-        .build();
-    button.add_css_class("appearance-option");
-    button.set_has_frame(false);
-    (button, check, option)
+    (row, check, option)
 }
 
 fn append_menu_heading(container: &gtk::Box, text: &str) {
@@ -813,7 +959,7 @@ fn trash_contents_from_probe(probe: Result<bool, glib::Error>) -> TrashContents 
 fn event_changes_trash_contents(event: &BrowserEvent) -> bool {
     matches!(
         event,
-        BrowserEvent::DeletionFinished
+        BrowserEvent::DeletionFinished { .. }
             | BrowserEvent::RestorationFinished
             | BrowserEvent::TransferFinished { .. }
             | BrowserEvent::OperationCompletedWithErrors { .. }
@@ -976,18 +1122,40 @@ impl SidebarState {
     }
 
     fn pin_location(self: &Rc<Self>, location: Location, name: String) {
-        if pin_status(&self.pinned_places.borrow(), &location) != PinStatus::Available {
-            return;
-        }
-        self.pinned_places.borrow_mut().push((location, name));
-        save_pinned_places(&self.pinned_places.borrow());
-        self.rebuild();
+        self.update_pinned_places(|places| {
+            if pin_status(places, &location) != PinStatus::Available {
+                return false;
+            }
+            places.push((location, name));
+            true
+        });
     }
 
     fn unpin_location(self: &Rc<Self>, location: &Location) {
-        if remove_pinned_place(&mut self.pinned_places.borrow_mut(), location) {
-            save_pinned_places(&self.pinned_places.borrow());
-            self.rebuild();
+        self.update_pinned_places(|places| remove_pinned_place(places, location));
+    }
+
+    fn update_pinned_places(
+        self: &Rc<Self>,
+        change: impl FnOnce(&mut Vec<(Location, String)>) -> bool,
+    ) {
+        // Merge into the shared file, never this window's stale snapshot.
+        let result = load_pinned_places().and_then(|mut places| {
+            if change(&mut places) {
+                save_pinned_places(&places)?;
+            }
+            Ok(places)
+        });
+        match result {
+            Ok(places) => {
+                self.pinned_places.replace(places);
+                self.rebuild();
+            }
+            Err(error) => show_error_dialog(
+                &self.view.widget(),
+                "Unable to update pinned folders",
+                &error.to_string(),
+            ),
         }
     }
     fn event_changes_active_place(event: &BrowserEvent) -> bool {
@@ -996,6 +1164,7 @@ impl SidebarState {
             BrowserEvent::Reset
                 | BrowserEvent::ColumnAdded { .. }
                 | BrowserEvent::ColumnsTruncated { .. }
+                | BrowserEvent::ColumnsRelocated { .. }
                 | BrowserEvent::FocusChanged { .. }
         )
     }
@@ -1116,6 +1285,7 @@ impl SidebarState {
         self.apply_trash_menu_visibility();
         self.watch_trash();
         self.refresh_trash_contents();
+        self.view.set_trash_button(row.clone());
         let popover = gtk::Popover::builder()
             .child(&menu)
             .autohide(true)
@@ -1170,7 +1340,7 @@ impl SidebarState {
         on_drop: impl Fn(&Rc<Self>, &str, bool) -> bool + 'static,
     ) {
         row.add_css_class("reorderable");
-        row.set_cursor_from_name(Some("grab"));
+        row.set_cursor_from_name(Some("pointer"));
 
         let drag = gtk::DragSource::builder()
             .actions(gtk::gdk::DragAction::MOVE)
@@ -1186,7 +1356,7 @@ impl SidebarState {
         let dragged_row = row.clone();
         drag.connect_drag_end(move |_, _, _| {
             dragged_row.remove_css_class("dragging");
-            dragged_row.set_cursor_from_name(Some("grab"));
+            dragged_row.set_cursor_from_name(Some("pointer"));
         });
         row.add_controller(drag);
 
@@ -1256,12 +1426,23 @@ impl SidebarState {
     }
 
     fn reorder_pinned_place(self: &Rc<Self>, source: usize, target: usize, after: bool) {
-        let changed =
-            reorder_pinned_places(&mut self.pinned_places.borrow_mut(), source, target, after);
-        if changed {
-            save_pinned_places(&self.pinned_places.borrow());
-            self.rebuild();
-        }
+        let (source, target) = {
+            let places = self.pinned_places.borrow();
+            match (places.get(source), places.get(target)) {
+                (Some(source), Some(target)) => (source.0.clone(), target.0.clone()),
+                _ => return,
+            }
+        };
+        self.update_pinned_places(|places| {
+            let position =
+                |location: &Location| places.iter().position(|(pinned, _)| pinned == location);
+            match (position(&source), position(&target)) {
+                (Some(source), Some(target)) => {
+                    reorder_pinned_places(places, source, target, after)
+                }
+                _ => false,
+            }
+        });
     }
 
     fn append_separator(&self) {
@@ -1521,17 +1702,26 @@ fn install_sidebar_file_drop(
     row: &impl IsA<gtk::Widget>,
     destination: Location,
 ) {
+    if destination == Location::uri("trash:///") {
+        install_sidebar_trash_drop(view, row);
+        return;
+    }
     if !sidebar_accepts_file_drop(&destination) {
         return;
     }
     row.add_css_class("file-drop-zone");
-    let drop = gtk::DropTarget::new(
-        gtk::gdk::FileList::static_type(),
-        gtk::gdk::DragAction::COPY | gtk::gdk::DragAction::MOVE,
-    );
+    let PreparedFileDrop {
+        target: drop,
+        state: drop_state,
+    } = prepare_file_drop_target({
+        let destination = destination.clone();
+        move || Some(destination.clone())
+    });
     drop.set_propagation_phase(gtk::PropagationPhase::Capture);
-    drop.connect_enter(|target, _, _| file_drop_action(target));
-    drop.connect_motion(|target, _, _| file_drop_action(target));
+    let state_for_enter = drop_state.clone();
+    drop.connect_enter(move |target, _, _| file_drop_action(target, &state_for_enter));
+    let state_for_motion = drop_state.clone();
+    drop.connect_motion(move |target, _, _| file_drop_action(target, &state_for_motion));
     let view = view.clone();
     drop.connect_drop(move |target, value, _, _| {
         let Some(sources) = locations_from_file_list_value(value) else {
@@ -1540,9 +1730,42 @@ fn install_sidebar_file_drop(
         if sources.is_empty() {
             return false;
         }
-        let move_sources = file_drop_action(target) == gtk::gdk::DragAction::MOVE;
-        view.start_transfer(destination.clone(), sources, move_sources);
+        let commit = file_drop_commit(target, &destination, &sources, &drop_state);
+        view.commit_file_drop(destination.clone(), sources, commit);
         true
+    });
+    row.add_controller(drop);
+}
+
+fn trash_file_drop_action(target: &gtk::DropTarget) -> gtk::gdk::DragAction {
+    if target.value().as_ref().is_some_and(|value| {
+        locations_from_file_list_value(value)
+            .is_none_or(|sources| !BrowserView::can_trash_file_drop(&sources))
+    }) {
+        gtk::gdk::DragAction::empty()
+    } else {
+        gtk::gdk::DragAction::MOVE
+    }
+}
+
+fn install_sidebar_trash_drop(view: &BrowserView, row: &impl IsA<gtk::Widget>) {
+    row.add_css_class("file-drop-zone");
+    let drop = gtk::DropTarget::new(
+        gtk::gdk::FileList::static_type(),
+        gtk::gdk::DragAction::MOVE,
+    );
+    drop.set_preload(true);
+    drop.set_propagation_phase(gtk::PropagationPhase::Capture);
+    drop.connect_enter(|target, _, _| trash_file_drop_action(target));
+    drop.connect_motion(|target, _, _| trash_file_drop_action(target));
+    drop.connect_value_notify(|target| {
+        if let Some(offered) = target.current_drop() {
+            offered.status(target.actions(), trash_file_drop_action(target));
+        }
+    });
+    let view = view.clone();
+    drop.connect_drop(move |_, value, _, _| {
+        locations_from_file_list_value(value).is_some_and(|sources| view.trash_file_drop(sources))
     });
     row.add_controller(drop);
 }
@@ -1931,6 +2154,7 @@ fn sidebar_button(icon: &str, name: &str) -> gtk::Button {
         .halign(gtk::Align::Fill)
         .build();
     row.add_css_class("sidebar-row");
+    row.set_cursor_from_name(Some("pointer"));
     row.set_has_frame(false);
     row
 }
@@ -1944,6 +2168,7 @@ fn sidebar_eject_button(action: MediaRelease, on_release: impl Fn() + 'static) -
         14,
     )));
     button.add_css_class("sidebar-eject");
+    button.set_cursor_from_name(Some("pointer"));
     button.set_has_frame(false);
     button.set_valign(gtk::Align::Center);
     button.connect_clicked(move |_| on_release());
@@ -2027,21 +2252,29 @@ fn pinned_places_path() -> PathBuf {
     glib::user_config_dir().join("gtk-3.0/bookmarks")
 }
 
-fn load_pinned_places() -> Vec<(Location, String)> {
-    std::fs::read_to_string(pinned_places_path())
-        .map(|contents| parse_pinned_places(&contents))
-        .unwrap_or_default()
+fn load_pinned_places() -> std::io::Result<Vec<(Location, String)>> {
+    match std::fs::read(pinned_places_path()) {
+        Ok(contents) => Ok(parse_pinned_places(&contents)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(error) => Err(error),
+    }
 }
 
-fn parse_pinned_places(contents: &str) -> Vec<(Location, String)> {
+/// GTK bookmarks may contain non-UTF-8 labels.
+fn parse_pinned_places(contents: &[u8]) -> Vec<(Location, String)> {
     let mut places = Vec::new();
-    for line in contents.lines() {
-        let (uri, label) = line
-            .split_once(' ')
-            .map_or((line, None), |(uri, label)| (uri, Some(label)));
+    for line in contents.split(|byte| *byte == b'\n') {
+        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        let (uri, label) = match line.iter().position(|byte| *byte == b' ') {
+            Some(space) => (&line[..space], Some(&line[space + 1..])),
+            None => (line, None),
+        };
         if uri.is_empty() {
             continue;
         }
+        let Ok(uri) = std::str::from_utf8(uri) else {
+            continue;
+        };
         let file = gio::File::for_uri(uri);
         let Some(location) = location_for_file(&file) else {
             continue;
@@ -2054,23 +2287,20 @@ fn parse_pinned_places(contents: &str) -> Vec<(Location, String)> {
         }
         let name = label
             .filter(|label| !label.is_empty())
-            .map(str::to_owned)
+            .map(|label| String::from_utf8_lossy(label).into_owned())
             .unwrap_or_else(|| location.display_name());
         places.push((location, name));
     }
     places
 }
 
-fn save_pinned_places(places: &[(Location, String)]) {
+fn save_pinned_places(places: &[(Location, String)]) -> std::io::Result<()> {
     let path = pinned_places_path();
-    let Some(parent) = path.parent() else {
-        return;
-    };
-    if std::fs::create_dir_all(parent).is_err() {
-        return;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
     }
     let contents = serialize_pinned_places(places);
-    let _result = crate::storage::atomic_write(&path, contents.as_bytes());
+    crate::storage::atomic_write(&path, contents.as_bytes())
 }
 
 fn serialize_pinned_places(places: &[(Location, String)]) -> String {

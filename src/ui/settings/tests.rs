@@ -1,6 +1,8 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 
 mod preferences;
+mod reference;
+mod typography;
 
 use std::rc::Rc;
 
@@ -10,9 +12,8 @@ use crate::services::{
 };
 
 use super::{
-    CHANNEL_ORDER, COMPACT_NAVIGATION_BREAKPOINT, DIALOG_HEIGHT, DIALOG_MARGIN, DIALOG_WIDTH,
-    RELEASE_CHANNEL_DESCRIPTION, RELEASE_CHANNEL_TITLE, UPDATE_DUE_INTERVAL, aur_update_command,
-    channel_index, effective_update_channel, force_due_update_check,
+    COMPACT_NAVIGATION_BREAKPOINT, DIALOG_HEIGHT, DIALOG_MARGIN, DIALOG_WIDTH, UPDATE_DUE_INTERVAL,
+    aur_update_command, effective_update_channel, force_due_update_check,
     general::{video_preview_backend_label, video_preview_control_state},
     install_guard, installed_version_status, is_stale_check, managed_channel_description,
     managed_install_summary, offer_still_eligible, omarchy_update_command,
@@ -108,6 +109,11 @@ fn theme_appearance_uses_background_luminance() {
     assert!(theme_background_is_light("#ffffff"));
     assert!(theme_background_is_light("#efecf4"));
     assert!(!theme_background_is_light("#1e1d1f"));
+    assert!(theme_background_is_light("rgb(255,255,255)"));
+    assert!(!theme_background_is_light("rgb(30,29,31)"));
+    assert!(theme_background_is_light("#fff"));
+    assert!(theme_background_is_light("white"));
+    assert!(!theme_background_is_light("black"));
     assert!(!theme_background_is_light("invalid"));
 }
 
@@ -221,15 +227,6 @@ fn video_preview_backend_selector_labels_all_options() {
     assert_eq!(
         video_preview_backend_label(MediaPreviewBackend::Software),
         "Automatic"
-    );
-}
-
-#[test]
-fn release_channel_copy_distinguishes_preview_from_nightly() {
-    assert_eq!(RELEASE_CHANNEL_TITLE, "Release channel");
-    assert_eq!(
-        RELEASE_CHANNEL_DESCRIPTION,
-        "Preview receives alpha, beta, and release-candidate builds. Nightly also receives daily development builds."
     );
 }
 
@@ -374,13 +371,6 @@ fn every_window_installs_behind_one_process_wide_guard() {
         "an install started in one window must be visible in every other"
     );
     first.set(false);
-}
-
-#[test]
-fn the_selector_highlights_the_button_for_the_persisted_channel() {
-    for (index, channel) in CHANNEL_ORDER.into_iter().enumerate() {
-        assert_eq!(channel_index(channel), index);
-    }
 }
 
 #[test]

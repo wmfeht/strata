@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 
 use std::{
     cell::{Cell, RefCell},
@@ -16,16 +16,18 @@ use crate::{
         DirectoryChange, DirectoryRequest, ExtractRequest, FileSource, LoadHandle,
         LocationValidationError, MetadataOutcome, MetadataRequest, MoveRecord, OperationEvent,
         OperationProvider, OperationRequestId, PasteItem, PasteRequest, RenameRequest, RequestId,
-        RestoreRequest, RestoreSource, TransferConflict, UndoCopyRequest, UndoMoveItem,
-        UndoMoveRequest, validate_basename, validate_uri_credentials,
+        RestoreRequest, RestoreSource, RestoreTrashItem, TransferConflict, UndoCopyRequest,
+        UndoMoveItem, UndoMoveRequest, validate_basename, validate_uri_credentials,
     },
 };
 
 mod loading;
 mod publication;
+mod remote;
 
-use loading::{LoadCompletion, RemoteTerminal};
+use loading::LoadCompletion;
 use publication::{PublicationPlan, PublishTerminal, StagedPublish};
+use remote::RemoteState;
 
 /// Caps a normal directory load at this project's own documented performance baseline for
 /// 100,000 entries (docs/performance-baseline.md: 3,755 ms, 286 MiB) -- past this, per-batch
@@ -57,6 +59,8 @@ pub struct BrowserColumnSnapshot {
 
 #[derive(Clone, Debug)]
 pub enum BrowserEvent {
+    /// The outgoing directory is still available for presentation-state capture.
+    NavigationStarting,
     Reset,
     ColumnsTruncated {
         len: usize,
@@ -64,6 +68,10 @@ pub enum BrowserEvent {
     ColumnAdded {
         depth: usize,
         location: Location,
+    },
+    /// Existing directories moved; retain the unaffected views and current focus.
+    ColumnsRelocated {
+        from_depth: usize,
     },
     EntriesInserted {
         depth: usize,
@@ -89,7 +97,6 @@ pub enum BrowserEvent {
     EntriesSpliced {
         depth: usize,
         splices: Vec<EntrySplice>,
-        selected: Option<usize>,
     },
     /// Refreshed entries for already-rendered rows; the order never changes here.
     MetadataFilled {
@@ -131,17 +138,32 @@ pub enum BrowserEvent {
         focused: usize,
         take_focus: bool,
     },
+    /// Selection already applied by a view. Observers must not reapply it or move focus.
+    SelectionSynced {
+        depth: usize,
+        focused: Option<usize>,
+    },
     PreviewRequested {
+        entry: FileEntry,
+    },
+    ExtractRequested {
         entry: FileEntry,
     },
     OpenRequested {
         location: Location,
     },
-    RenameCompleted,
+    RenameCompleted {
+        request_id: OperationRequestId,
+    },
+    RenameAbandoned {
+        request_id: OperationRequestId,
+    },
     EntryCreated {
         location: Location,
     },
+    /// `None` means the request was rejected before an operation was allocated.
     RenameFailed {
+        request_id: Option<OperationRequestId>,
         message: String,
     },
     TransferStarted {
@@ -163,7 +185,9 @@ pub enum BrowserEvent {
         completed: usize,
         total: usize,
     },
-    DeletionFinished,
+    DeletionFinished {
+        succeeded: bool,
+    },
     RestorationStarted {
         total: usize,
     },
@@ -219,6 +243,7 @@ pub enum BrowserEvent {
 /// emission stays safe.
 type Observer = Rc<dyn Fn(&BrowserEvent)>;
 type PreferencesObserver = Rc<dyn Fn(ViewPreferences)>;
+type DeferredDirectoryChanges = HashMap<usize, Vec<(Location, DirectoryChange)>>;
 
 const MAX_INCREMENTAL_OPERATION_UPDATES: usize = 64;
 
@@ -474,33 +499,40 @@ pub struct Browser {
     sorting: RefCell<HashMap<usize, SortingLoad>>,
     staged_publishes: RefCell<HashMap<usize, StagedPublish>>,
     publish_timer: RefCell<Option<gio::glib::SourceId>>,
-    remote_flush_timer: RefCell<Option<gio::glib::SourceId>>,
-    remote_terminals: RefCell<HashMap<usize, RemoteTerminal>>,
+    remote: RefCell<RemoteState>,
     metadata_loads: RefCell<HashMap<usize, LoadHandle>>,
     fill_tokens: RefCell<HashMap<RequestId, ViewportFill>>,
     /// Full-column sort fills, kept apart from viewport fills so a viewport
     /// settle timer can never overwrite or cancel an active full sort.
     sort_loads: RefCell<HashMap<usize, LoadHandle>>,
-    coalesce_pending: RefCell<HashMap<usize, (RequestId, Vec<FileEntry>)>>,
     sort_awaiting_fill: RefCell<Option<SortFill>>,
     last_batch_selection: RefCell<BatchSelectionState>,
     peek_load: RefCell<Option<LoadHandle>>,
     validation_load: RefCell<Option<LoadHandle>>,
     validation_generation: Cell<u64>,
+    navigation_cleanup: RefCell<Option<Box<dyn FnOnce()>>>,
     operation_provider: RefCell<Option<Rc<dyn OperationProvider>>>,
     operation_load: RefCell<Option<LoadHandle>>,
     current_operation: Cell<Option<OperationRequestId>>,
+    last_started_operation: Cell<Option<OperationRequestId>>,
+    rename_operation: Cell<Option<OperationRequestId>>,
     transfer_operation: Cell<Option<bool>>,
     deletion_operation: Cell<bool>,
     deletion_permanent: Cell<bool>,
+    deferred_file_operation_changes: RefCell<DeferredDirectoryChanges>,
     restoration_operation: Cell<bool>,
     archive_operation: Cell<bool>,
     transfer_destination: RefCell<Option<Location>>,
+    /// Whether a completed transfer should navigate to/reveal its destination.
+    /// A drop onto a folder row moves or copies the file without leaving the
+    /// source listing; a paste or explicit "move to" still shows where it landed.
+    transfer_reveal: Cell<bool>,
     created_locations: RefCell<Vec<Location>>,
     undo_claim: RefCell<Option<(u64, UndoEntry)>>,
     next_request: Cell<u64>,
     pending_sort: Cell<Option<(u64, usize)>>,
     preferences: Cell<ViewPreferences>,
+    chooser_mode: Cell<bool>,
     observers: RefCell<Vec<Observer>>,
     preferences_observers: RefCell<Vec<PreferencesObserver>>,
 }
@@ -523,31 +555,35 @@ impl Browser {
             sorting: RefCell::new(HashMap::new()),
             staged_publishes: RefCell::new(HashMap::new()),
             publish_timer: RefCell::new(None),
-            remote_flush_timer: RefCell::new(None),
-            remote_terminals: RefCell::new(HashMap::new()),
+            remote: RefCell::new(RemoteState::new()),
             metadata_loads: RefCell::new(HashMap::new()),
             fill_tokens: RefCell::new(HashMap::new()),
             sort_loads: RefCell::new(HashMap::new()),
-            coalesce_pending: RefCell::new(HashMap::new()),
             sort_awaiting_fill: RefCell::new(None),
             last_batch_selection: RefCell::new(HashMap::new()),
             peek_load: RefCell::new(None),
             validation_load: RefCell::new(None),
             validation_generation: Cell::new(0),
+            navigation_cleanup: RefCell::new(None),
             operation_provider: RefCell::new(None),
             operation_load: RefCell::new(None),
             current_operation: Cell::new(None),
+            last_started_operation: Cell::new(None),
+            rename_operation: Cell::new(None),
             transfer_operation: Cell::new(None),
             deletion_operation: Cell::new(false),
             deletion_permanent: Cell::new(false),
+            deferred_file_operation_changes: RefCell::new(HashMap::new()),
             restoration_operation: Cell::new(false),
             archive_operation: Cell::new(false),
             transfer_destination: RefCell::new(None),
+            transfer_reveal: Cell::new(true),
             created_locations: RefCell::new(Vec::new()),
             undo_claim: RefCell::new(None),
             next_request: Cell::new(1),
             pending_sort: Cell::new(None),
             preferences: Cell::new(preferences),
+            chooser_mode: Cell::new(false),
             observers: RefCell::new(Vec::new()),
             preferences_observers: RefCell::new(Vec::new()),
         })
@@ -555,6 +591,20 @@ impl Browser {
 
     pub fn observe(&self, observer: impl Fn(&BrowserEvent) + 'static) {
         self.observers.borrow_mut().push(Rc::new(observer));
+    }
+
+    fn should_extract_on_activate(&self, entry: &FileEntry) -> bool {
+        !self.is_chooser_mode()
+            && entry.location.native_path().is_some()
+            && ArchiveFormat::from_extension(&entry.display_name).is_some()
+    }
+
+    pub fn set_chooser_mode(&self, chooser: bool) {
+        self.chooser_mode.set(chooser);
+    }
+
+    pub fn is_chooser_mode(&self) -> bool {
+        self.chooser_mode.get()
     }
 
     pub fn clear_observer(&self) {
@@ -597,7 +647,7 @@ impl Browser {
             .active_location()
             .filter(|current| current.display_path() == input)
         {
-            self.navigate_validated(current);
+            self.navigate_validated(current, true);
             return Ok(());
         }
         let location = location_from_input(input)?;
@@ -608,15 +658,13 @@ impl Browser {
             self.source.validate_location(&location)?;
             self.navigate(location);
         } else {
-            self.navigate_validated(location);
+            self.navigate_validated(location, true);
         }
         Ok(())
     }
 
-    fn navigate_validated(self: &Rc<Self>, location: Location) {
-        let generation = self.validation_generation.get().saturating_add(1);
-        self.validation_generation.set(generation);
-        self.validation_load.borrow_mut().take();
+    fn navigate_validated(self: &Rc<Self>, location: Location, select_first: bool) {
+        let generation = self.bump_navigation_generation();
         let weak = Rc::downgrade(self);
         let pending_location = location.clone();
         let emit = Rc::new(move |result| {
@@ -627,7 +675,9 @@ impl Browser {
                 return;
             }
             match result {
-                Ok(()) => browser.navigate(pending_location.clone()),
+                Ok(()) => {
+                    browser.navigate_with_selection(pending_location.clone(), select_first);
+                }
                 Err(error) => browser.emit(BrowserEvent::LocationNavigationRejected { error }),
             }
         });
@@ -637,6 +687,31 @@ impl Browser {
 
     pub fn active_location(&self) -> Option<Location> {
         self.state.borrow().active_location()
+    }
+
+    pub(crate) fn navigation_generation(&self) -> u64 {
+        self.validation_generation.get()
+    }
+
+    /// Invalidates work whose result is guarded by the navigation generation.
+    pub(crate) fn bump_navigation_generation(&self) -> u64 {
+        let generation = self.validation_generation.get().saturating_add(1);
+        self.validation_generation.set(generation);
+        self.validation_load.borrow_mut().take();
+        if let Some(cleanup) = self.navigation_cleanup.take() {
+            cleanup();
+        }
+        generation
+    }
+
+    pub(crate) fn set_navigation_cleanup(&self, cleanup: impl FnOnce() + 'static) {
+        if let Some(previous) = self.navigation_cleanup.replace(Some(Box::new(cleanup))) {
+            previous();
+        }
+    }
+
+    pub(crate) fn finish_navigation_cleanup(&self) {
+        self.navigation_cleanup.take();
     }
 
     pub fn active_depth(&self) -> Option<usize> {
@@ -683,20 +758,25 @@ impl Browser {
 
     /// Navigates directly for native paths and validates URI locations first so mountable
     /// locations can be mounted by the UI before loading them.
-    pub(crate) fn navigate_location(self: &Rc<Self>, location: Location) {
+    pub(crate) fn navigate_location(self: &Rc<Self>, location: Location, select_first: bool) {
         if location.native_path().is_some() {
-            self.navigate(location);
+            self.navigate_with_selection(location, select_first);
         } else {
-            self.navigate_validated(location);
+            self.navigate_validated(location, select_first);
         }
     }
 
     pub fn navigate(self: &Rc<Self>, location: Location) {
-        self.validation_generation
-            .set(self.validation_generation.get().saturating_add(1));
-        self.validation_load.borrow_mut().take();
+        self.navigate_with_selection(location, true);
+    }
+
+    pub(crate) fn navigate_with_selection(self: &Rc<Self>, location: Location, select_first: bool) {
+        self.bump_navigation_generation();
         if self.active_location().as_ref() == Some(&location) {
             return;
+        }
+        if self.active_location().is_some() {
+            self.emit(BrowserEvent::NavigationStarting);
         }
         self.close_peek();
         self.loads.borrow_mut().clear();
@@ -706,6 +786,9 @@ impl Browser {
         self.state
             .borrow_mut()
             .navigate(location.clone(), request_id);
+        if select_first {
+            self.select_first_on_load(0);
+        }
         self.emit(BrowserEvent::Reset);
         self.emit(BrowserEvent::ColumnAdded {
             depth: 0,
@@ -728,9 +811,7 @@ impl Browser {
         location: Location,
         select_first_on_load: bool,
     ) {
-        self.validation_generation
-            .set(self.validation_generation.get().saturating_add(1));
-        self.validation_load.borrow_mut().take();
+        self.bump_navigation_generation();
         if self.is_open_child(parent_depth, &location) {
             return;
         }
@@ -748,9 +829,7 @@ impl Browser {
             return;
         }
 
-        let generation = self.validation_generation.get().saturating_add(1);
-        self.validation_generation.set(generation);
-        self.validation_load.borrow_mut().take();
+        let generation = self.bump_navigation_generation();
         let weak = Rc::downgrade(self);
         let pending_location = location.clone();
         let parent_location = self.location_at(parent_depth);
@@ -788,6 +867,10 @@ impl Browser {
         location: Location,
         select_first_on_load: bool,
     ) {
+        if self.location_at(parent_depth).is_none() {
+            return;
+        }
+        self.emit(BrowserEvent::NavigationStarting);
         let request_id = self.new_request_id();
         let mut state = self.state.borrow_mut();
         if !state.descend(parent_depth, location.clone(), request_id) {
@@ -1113,6 +1196,10 @@ impl Browser {
         self.state.borrow().column_preferences(depth)
     }
 
+    pub(crate) fn column_request_id(&self, depth: usize) -> Option<RequestId> {
+        self.state.borrow().request_id_for_depth(depth)
+    }
+
     pub fn column_snapshot(&self, depth: usize) -> Option<BrowserColumnSnapshot> {
         let state = self.state.borrow();
         let column = state.columns.get(depth)?;
@@ -1188,21 +1275,34 @@ impl Browser {
                 selected = state.selected_count(),
                 "selection changed"
             );
+            drop(state);
+            self.emit(BrowserEvent::SelectionSynced { depth, focused });
         }
     }
 
     pub fn select_all(&self, depth: usize) {
-        let count = self
+        let show_hidden = self
+            .column_preferences(depth)
+            .unwrap_or_else(|| self.preferences())
+            .show_hidden;
+        let positions: Vec<usize> = self
             .state
             .borrow()
             .columns
             .get(depth)
-            .map_or(0, |column| column.entries.len());
-        if count == 0 {
+            .map(|column| {
+                column
+                    .entries
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, entry)| show_hidden || !entry.is_hidden)
+                    .map(|(position, _)| position)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let Some(&focused) = positions.last() else {
             return;
-        }
-        let positions: Vec<_> = (0..count).collect();
-        let focused = count - 1;
+        };
         self.commit_selection();
         if self
             .state
@@ -1222,31 +1322,61 @@ impl Browser {
         self.state.borrow().active_child_position(depth)
     }
 
-    pub fn rename(self: &Rc<Self>, entry: FileEntry, new_name: String) {
+    pub fn rename(
+        self: &Rc<Self>,
+        entry: FileEntry,
+        new_name: String,
+    ) -> Option<OperationRequestId> {
         if let Err(message) = validate_basename(&new_name) {
             self.emit(BrowserEvent::RenameFailed {
+                request_id: None,
                 message: message.to_owned(),
             });
-            return;
+            return None;
         }
         let Some(provider) = self.operation_provider.borrow().clone() else {
             self.emit(BrowserEvent::RenameFailed {
+                request_id: None,
                 message: "File operations are unavailable".to_owned(),
             });
-            return;
+            return None;
         };
         let request_id = self.begin_operation();
+        self.rename_operation.set(Some(request_id));
         let refresh_locations = entry.location.parent().into_iter().collect();
         let emit = self.operation_callback(request_id, true, refresh_locations);
+        let mut renamed = entry.clone();
+        let new_location = entry
+            .location
+            .parent()
+            .and_then(|parent| parent.child(std::ffi::OsStr::new(&new_name)));
+        renamed.native_name = std::ffi::OsString::from(&new_name);
+        renamed.display_name = new_name.clone();
+        renamed.is_hidden = new_name.starts_with('.');
+        let old_location = entry.location.clone();
+        let weak = Rc::downgrade(self);
+        let publish = Rc::new(move |event: OperationEvent| {
+            if matches!(&event, OperationEvent::Renamed { request_id: id } if *id == request_id)
+                && let Some(browser) = weak.upgrade()
+                && browser.is_current_operation(request_id)
+                && let Some(location) = new_location.as_ref()
+            {
+                let mut renamed = renamed.clone();
+                renamed.location = location.clone();
+                browser.publish_rename(&old_location, renamed);
+            }
+            emit(event);
+        });
         let load = provider.rename(
             RenameRequest {
                 id: request_id,
                 entry,
                 new_name,
             },
-            emit,
+            publish,
         );
-        self.operation_load.replace(Some(load));
+        self.install_operation_load(request_id, load);
+        Some(request_id)
     }
 
     pub fn create_new_folder(self: &Rc<Self>, parent: Location) {
@@ -1282,7 +1412,7 @@ impl Browser {
             },
             self.operation_callback(request_id, false, HashSet::from([refresh_parent])),
         );
-        self.operation_load.replace(Some(load));
+        self.install_operation_load(request_id, load);
     }
 
     pub fn create_new_file(self: &Rc<Self>, parent: Location) {
@@ -1313,7 +1443,7 @@ impl Browser {
             },
             self.operation_callback(request_id, false, HashSet::from([refresh_parent])),
         );
-        self.operation_load.replace(Some(load));
+        self.install_operation_load(request_id, load);
     }
 
     pub fn transfer(
@@ -1321,6 +1451,7 @@ impl Browser {
         destination: Location,
         items: Vec<PasteItem>,
         move_sources: bool,
+        reveal: bool,
     ) {
         if items.is_empty() {
             return;
@@ -1334,6 +1465,7 @@ impl Browser {
         let request_id = self.begin_operation();
         self.transfer_operation.set(Some(move_sources));
         self.transfer_destination.replace(Some(destination.clone()));
+        self.transfer_reveal.set(reveal);
         self.emit(BrowserEvent::TransferStarted {
             total: items.len(),
             moving: move_sources,
@@ -1353,7 +1485,7 @@ impl Browser {
             },
             self.operation_callback(request_id, false, refresh_locations),
         );
-        self.operation_load.replace(Some(load));
+        self.install_operation_load(request_id, load);
     }
 
     pub fn delete(self: &Rc<Self>, entries: Vec<FileEntry>, permanent: bool) {
@@ -1379,11 +1511,11 @@ impl Browser {
             },
             self.operation_callback(request_id, false, HashSet::new()),
         );
-        self.operation_load.replace(Some(load));
+        self.install_operation_load(request_id, load);
     }
 
-    pub fn restore(self: &Rc<Self>, entries: Vec<FileEntry>) {
-        if entries.is_empty() {
+    pub fn restore(self: &Rc<Self>, items: Vec<RestoreTrashItem>) {
+        if items.is_empty() {
             return;
         }
         let Some(provider) = self.operation_provider.borrow().clone() else {
@@ -1392,18 +1524,18 @@ impl Browser {
             });
             return;
         };
-        let total = entries.len();
+        let total = items.len();
         let request_id = self.begin_operation();
         self.restoration_operation.set(true);
         self.emit(BrowserEvent::RestorationStarted { total });
         let load = provider.restore(
             RestoreRequest {
                 id: request_id,
-                source: RestoreSource::TrashEntries(entries),
+                source: RestoreSource::TrashEntries(items),
             },
             self.operation_callback(request_id, false, HashSet::new()),
         );
-        self.operation_load.replace(Some(load));
+        self.install_operation_load(request_id, load);
     }
 
     /// The pending move undo, if the latest reversible operation was a move.
@@ -1462,7 +1594,7 @@ impl Browser {
             },
             self.operation_callback(request_id, false, HashSet::new()),
         );
-        self.operation_load.replace(Some(load));
+        self.install_operation_load(request_id, load);
         true
     }
 
@@ -1511,7 +1643,7 @@ impl Browser {
             },
             self.operation_callback(request_id, false, refresh_locations),
         );
-        self.operation_load.replace(Some(load));
+        self.install_operation_load(request_id, load);
         true
     }
 
@@ -1549,7 +1681,7 @@ impl Browser {
             },
             self.operation_callback(request_id, false, refresh_locations),
         );
-        self.operation_load.replace(Some(load));
+        self.install_operation_load(request_id, load);
         true
     }
 
@@ -1585,7 +1717,7 @@ impl Browser {
             },
             self.operation_callback(request_id, false, HashSet::new()),
         );
-        self.operation_load.replace(Some(load));
+        self.install_operation_load(request_id, load);
     }
 
     pub fn extract(
@@ -1611,15 +1743,34 @@ impl Browser {
             },
             self.operation_callback(request_id, false, HashSet::new()),
         );
-        self.operation_load.replace(Some(load));
+        self.install_operation_load(request_id, load);
     }
 
     pub fn cancel_file_operation(&self) {
         self.operation_load.borrow_mut().take();
     }
 
+    pub(crate) fn is_current_operation(&self, request_id: OperationRequestId) -> bool {
+        self.current_operation.get() == Some(request_id)
+    }
+
+    pub(crate) fn last_started_operation(&self) -> Option<OperationRequestId> {
+        self.last_started_operation.get()
+    }
+
     fn begin_operation(&self) -> OperationRequestId {
+        let request_id = OperationRequestId(self.next_request.get());
+        self.next_request
+            .set(self.next_request.get().saturating_add(1));
+        self.last_started_operation.set(Some(request_id));
+        let previous_operation = self.current_operation.take();
+        let previous_rename = self.rename_operation.take();
         self.operation_load.borrow_mut().take();
+        if previous_operation == previous_rename
+            && let Some(request_id) = previous_rename
+        {
+            self.emit(BrowserEvent::RenameAbandoned { request_id });
+        }
         if let Some((generation, _)) = self.undo_claim.take() {
             finish_undo(generation, false);
         }
@@ -1628,13 +1779,17 @@ impl Browser {
         self.created_locations.borrow_mut().clear();
         self.deletion_operation.set(false);
         self.deletion_permanent.set(false);
+        self.deferred_file_operation_changes.borrow_mut().clear();
         self.restoration_operation.set(false);
         self.archive_operation.set(false);
-        let request_id = OperationRequestId(self.next_request.get());
-        self.next_request
-            .set(self.next_request.get().saturating_add(1));
         self.current_operation.set(Some(request_id));
         request_id
+    }
+
+    fn install_operation_load(&self, request_id: OperationRequestId, load: LoadHandle) {
+        if self.is_current_operation(request_id) {
+            self.operation_load.replace(Some(load));
+        }
     }
 
     fn operation_callback(
@@ -1676,15 +1831,10 @@ impl Browser {
             if let OperationEvent::DeleteProgress {
                 completed,
                 total,
-                deleted_location,
+                deleted_location: _deleted_location,
                 ..
             } = &event
             {
-                if *total <= MAX_INCREMENTAL_OPERATION_UPDATES
-                    && let Some(location) = deleted_location
-                {
-                    browser.remove_deleted_locations(std::slice::from_ref(location));
-                }
                 browser.emit(BrowserEvent::DeletionProgress {
                     completed: *completed,
                     total: *total,
@@ -1728,11 +1878,6 @@ impl Browser {
                 {
                     mark_undo_item_completed(*generation, location);
                 }
-                if *total <= MAX_INCREMENTAL_OPERATION_UPDATES
-                    && let Some(location) = restored_location
-                {
-                    browser.remove_deleted_locations(std::slice::from_ref(location));
-                }
                 browser.emit(BrowserEvent::RestorationProgress {
                     completed: *completed,
                     total: *total,
@@ -1754,12 +1899,38 @@ impl Browser {
                 return;
             }
             browser.current_operation.set(None);
+            if rename && browser.rename_operation.get() == Some(request_id) {
+                browser.rename_operation.set(None);
+            }
             let moving = browser.transfer_operation.replace(None);
             let deleting = browser.deletion_operation.replace(false);
             let deletion_permanent = browser.deletion_permanent.replace(false);
             let restoring = browser.restoration_operation.replace(false);
             let archiving = browser.archive_operation.replace(false);
             let destination = browser.transfer_destination.replace(None);
+            let reveal = browser.transfer_reveal.replace(true);
+            let deferred_file_operation_changes = if deleting || restoring {
+                browser.deferred_file_operation_changes.take()
+            } else {
+                HashMap::new()
+            };
+            let completed_changes = match &event {
+                OperationEvent::Deleted { locations, .. }
+                | OperationEvent::Restored { locations, .. } => locations.len(),
+                OperationEvent::CompletedWithErrors {
+                    deleted_locations, ..
+                } => deleted_locations.len(),
+                OperationEvent::RestoreCompletedWithErrors {
+                    restored_locations, ..
+                } => restored_locations.len(),
+                OperationEvent::Cancelled { result, .. } => result.completed.len(),
+                _ => 0,
+            };
+            let file_operation_refreshed = (deleting || restoring)
+                && browser.flush_deferred_file_operation_changes(
+                    deferred_file_operation_changes,
+                    completed_changes > MAX_INCREMENTAL_OPERATION_UPDATES,
+                );
             let undoing = browser.undo_claim.take();
             if let Some((generation, entry)) = &undoing {
                 let completed = match (entry, &event) {
@@ -1854,7 +2025,9 @@ impl Browser {
                 });
             }
             if deleting {
-                browser.emit(BrowserEvent::DeletionFinished);
+                browser.emit(BrowserEvent::DeletionFinished {
+                    succeeded: matches!(&event, OperationEvent::Deleted { .. }),
+                });
             }
             if restoring {
                 browser.emit(BrowserEvent::RestorationFinished);
@@ -1862,7 +2035,10 @@ impl Browser {
             browser.operation_load.borrow_mut().take();
             match event {
                 OperationEvent::Failed { message, .. } if rename => {
-                    browser.emit(BrowserEvent::RenameFailed { message });
+                    browser.emit(BrowserEvent::RenameFailed {
+                        request_id: Some(request_id),
+                        message,
+                    });
                 }
                 OperationEvent::Failed { message, .. } => {
                     browser.emit(BrowserEvent::OperationFailed { message });
@@ -1880,7 +2056,9 @@ impl Browser {
                     message,
                     ..
                 } => {
-                    browser.remove_deleted_locations(&deleted_locations);
+                    if !file_operation_refreshed {
+                        browser.remove_deleted_locations(&deleted_locations);
+                    }
                     browser.emit(BrowserEvent::OperationCompletedWithErrors {
                         message,
                         retryable_locations,
@@ -1889,14 +2067,18 @@ impl Browser {
                 }
                 OperationEvent::Deleted { locations, .. }
                 | OperationEvent::Restored { locations, .. } => {
-                    browser.remove_deleted_locations(&locations);
+                    if !file_operation_refreshed {
+                        browser.remove_deleted_locations(&locations);
+                    }
                 }
                 OperationEvent::RestoreCompletedWithErrors {
                     restored_locations,
                     message,
                     ..
                 } => {
-                    browser.remove_deleted_locations(&restored_locations);
+                    if !file_operation_refreshed {
+                        browser.remove_deleted_locations(&restored_locations);
+                    }
                     browser.emit(BrowserEvent::OperationCompletedWithErrors {
                         message,
                         retryable_locations: Vec::new(),
@@ -1904,8 +2086,16 @@ impl Browser {
                     });
                 }
                 OperationEvent::Cancelled { result, .. } => {
-                    let mut affected_locations = refresh_locations.clone();
-                    affected_locations.extend(result.affected_locations);
+                    if rename {
+                        browser.emit(BrowserEvent::RenameAbandoned { request_id });
+                    }
+                    let affected_locations = if file_operation_refreshed {
+                        HashSet::new()
+                    } else {
+                        let mut locations = refresh_locations.clone();
+                        locations.extend(result.affected_locations);
+                        locations
+                    };
                     if archiving {
                         browser.emit(BrowserEvent::ArchiveCompleted {
                             select_name: String::new(),
@@ -1919,7 +2109,8 @@ impl Browser {
                     });
                 }
                 OperationEvent::Renamed { .. } => {
-                    browser.emit(BrowserEvent::RenameCompleted);
+                    browser.emit(BrowserEvent::RenameCompleted { request_id });
+                    // Remote locations have no monitor to publish the authoritative rename.
                     for location in &refresh_locations {
                         if location.native_path().is_none() {
                             browser.refresh_columns_at(location);
@@ -1942,7 +2133,8 @@ impl Browser {
                             browser.refresh_columns_at(location);
                         }
                     }
-                    if undoing.is_none()
+                    if reveal
+                        && undoing.is_none()
                         && browser.validation_generation.get() == navigation_generation
                         && browser.active_location() == origin
                         && !reveal_locations.is_empty()
@@ -1997,6 +2189,10 @@ impl Browser {
         }
     }
 
+    pub fn request_preview(&self, entry: FileEntry) {
+        self.emit(BrowserEvent::PreviewRequested { entry });
+    }
+
     pub fn open_location(&self, location: Location) {
         self.emit(BrowserEvent::OpenRequested { location });
     }
@@ -2014,7 +2210,24 @@ impl Browser {
             return;
         }
         self.select(depth, position);
-        self.activate_focused();
+        self.activate_focused_with_selection(false);
+    }
+
+    /// The successful creation has already established the entry's type and location.
+    pub(crate) fn reveal_created_entry(self: &Rc<Self>, depth: usize, position: usize) {
+        let Some(entry) = self.entry_at(depth, position) else {
+            return;
+        };
+        self.select(depth, position);
+        if entry.is_directory() {
+            // Do not start another asynchronous validation that can outlive inline rename.
+            self.bump_navigation_generation();
+            self.close_peek();
+            self.descend_validated(depth, entry.location, false);
+            self.select(depth, position);
+        } else {
+            self.close_column(depth + 1);
+        }
     }
 
     pub(crate) fn is_open_child(&self, parent_depth: usize, location: &Location) -> bool {
@@ -2027,12 +2240,23 @@ impl Browser {
 
     /// Activates an item using conventional single-pane list navigation.
     pub fn activate_in_place(self: &Rc<Self>, depth: usize, position: usize) {
+        self.activate_in_place_with_selection(depth, position, false);
+    }
+
+    fn activate_in_place_with_selection(
+        self: &Rc<Self>,
+        depth: usize,
+        position: usize,
+        select_first: bool,
+    ) {
         self.select(depth, position);
         let Some(entry) = self.entry_at(depth, position) else {
             return;
         };
         if entry.is_directory() {
-            self.navigate(entry.location);
+            self.navigate_with_selection(entry.location, select_first);
+        } else if self.should_extract_on_activate(&entry) {
+            self.emit(BrowserEvent::ExtractRequested { entry });
         } else {
             self.emit(BrowserEvent::OpenRequested {
                 location: entry.location,
@@ -2045,7 +2269,7 @@ impl Browser {
             self.move_selection(1);
             return;
         };
-        self.activate_in_place(depth, position);
+        self.activate_in_place_with_selection(depth, position, true);
     }
 
     pub fn move_selection(&self, direction: i32) {
@@ -2118,6 +2342,10 @@ impl Browser {
     }
 
     pub fn activate_focused(self: &Rc<Self>) {
+        self.activate_focused_with_selection(true);
+    }
+
+    fn activate_focused_with_selection(self: &Rc<Self>, select_first: bool) {
         let focused = self.state.borrow().focused_entry();
         let Some((depth, _, entry)) = focused else {
             self.move_selection(1);
@@ -2128,8 +2356,10 @@ impl Browser {
             if self.is_open_child(depth, &entry.location) {
                 self.focus_child();
             } else {
-                self.descend_with_selection(depth, entry.location, true);
+                self.descend_with_selection(depth, entry.location, select_first);
             }
+        } else if self.should_extract_on_activate(&entry) {
+            self.emit(BrowserEvent::ExtractRequested { entry });
         } else {
             self.emit(BrowserEvent::OpenRequested {
                 location: entry.location,
@@ -2138,6 +2368,7 @@ impl Browser {
     }
 
     fn restore_path(self: &Rc<Self>, path: NavigationPath) {
+        self.emit(BrowserEvent::NavigationStarting);
         self.close_peek();
         self.loads.borrow_mut().clear();
         self.monitors.borrow_mut().clear();
@@ -2155,8 +2386,11 @@ impl Browser {
             .borrow_mut()
             .restore(path, loads.iter().map(|(_, request_id)| *request_id));
 
-        self.emit(BrowserEvent::Reset);
         let active_depth = loads.len().checked_sub(1);
+        if let Some(depth) = active_depth {
+            self.select_first_on_load(depth);
+        }
+        self.emit(BrowserEvent::Reset);
         for (depth, (location, request_id)) in loads.into_iter().enumerate() {
             self.emit(BrowserEvent::ColumnAdded {
                 depth,
@@ -2169,6 +2403,68 @@ impl Browser {
                 depth,
                 position: None,
             });
+        }
+    }
+
+    fn publish_rename(self: &Rc<Self>, old: &Location, entry: FileEntry) {
+        if !(0..)
+            .map_while(|depth| self.location_at(depth))
+            .any(|location| location.is_within(old))
+        {
+            return;
+        }
+        if let Some(parent) = old.parent() {
+            let depths = (0..)
+                .map_while(|depth| self.location_at(depth).map(|location| (depth, location)))
+                .filter_map(|(depth, location)| (location == parent).then_some(depth))
+                .collect::<Vec<_>>();
+            for depth in depths {
+                self.handle_directory_change(
+                    depth,
+                    &parent,
+                    DirectoryChange::Move {
+                        from: old.clone(),
+                        entry: entry.clone(),
+                    },
+                );
+            }
+        }
+        // The source parent need not still be open when the operation completes.
+        self.relocate_open_columns(old, &entry.location);
+    }
+
+    fn relocate_open_columns(self: &Rc<Self>, from: &Location, to: &Location) {
+        let locations = (0..)
+            .map_while(|depth| self.location_at(depth))
+            .collect::<Vec<_>>();
+        let Some(from_depth) = locations.iter().position(|location| {
+            location
+                .rebase(from, to)
+                .is_some_and(|relocated| relocated != *location)
+        }) else {
+            return;
+        };
+        let loads = locations
+            .into_iter()
+            .enumerate()
+            .skip(from_depth)
+            .map(|(depth, location)| {
+                let relocated = location.rebase(from, to).unwrap_or(location);
+                (depth, relocated, self.new_request_id())
+            })
+            .collect::<Vec<_>>();
+        self.close_peek();
+        self.loads.borrow_mut().truncate(from_depth);
+        self.monitors.borrow_mut().truncate(from_depth);
+        self.truncate_deferred_from(from_depth);
+        for (depth, location, request_id) in &loads {
+            self.state
+                .borrow_mut()
+                .relocate_column(*depth, location.clone(), *request_id);
+        }
+        self.emit(BrowserEvent::ColumnsRelocated { from_depth });
+        for (depth, location, request_id) in loads {
+            self.start_load(depth, location, request_id);
         }
     }
 
@@ -2254,120 +2550,6 @@ impl Browser {
         } else {
             slot.entries.extend(entries);
         }
-    }
-
-    fn accumulate_batch(
-        self: &Rc<Self>,
-        request_id: RequestId,
-        depth: usize,
-        entries: Vec<FileEntry>,
-    ) {
-        let mut pending = self.coalesce_pending.borrow_mut();
-        let slot = pending
-            .entry(depth)
-            .or_insert_with(|| (request_id, Vec::new()));
-        if slot.0 != request_id {
-            *slot = (request_id, Vec::new());
-        }
-        slot.1.extend(entries);
-        let full = slot.1.len() >= COALESCE_ENTRIES;
-        drop(pending);
-        if full {
-            self.flush_coalesced_capped(Some(depth));
-        } else {
-            self.arm_remote_flush_timer();
-        }
-    }
-
-    fn flush_coalesced_capped(self: &Rc<Self>, depth: Option<usize>) {
-        let depths: Vec<usize> = match depth {
-            Some(depth) => vec![depth],
-            None => self.coalesce_pending.borrow().keys().copied().collect(),
-        };
-        for &depth in &depths {
-            self.drain_publish(depth);
-            let chunk: Option<(RequestId, Vec<FileEntry>)> = self
-                .coalesce_pending
-                .borrow_mut()
-                .get_mut(&depth)
-                .and_then(|slot| {
-                    if slot.1.is_empty() {
-                        return None;
-                    }
-                    let take = slot.1.len().min(REMOTE_FLUSH_CAP);
-                    let entries: Vec<FileEntry> = slot.1.drain(..take).collect();
-                    Some((slot.0, entries))
-                });
-            if let Some((request_id, entries)) = chunk {
-                self.apply_owned_batch(request_id, entries);
-            }
-        }
-        self.coalesce_pending
-            .borrow_mut()
-            .retain(|_, (_, entries)| !entries.is_empty());
-        if self.coalesce_pending.borrow().is_empty() {
-            if let Some(source) = self.remote_flush_timer.borrow_mut().take() {
-                source.remove();
-            }
-        } else {
-            self.arm_remote_flush_timer();
-        }
-        for depth in depths {
-            self.finish_remote_if_drained(depth);
-        }
-    }
-
-    fn finish_remote_if_drained(self: &Rc<Self>, depth: usize) {
-        if self.coalesce_pending.borrow().contains_key(&depth) {
-            return;
-        }
-        let Some(terminal) = self.remote_terminals.borrow_mut().remove(&depth) else {
-            return;
-        };
-        match terminal {
-            RemoteTerminal::Finished {
-                request_id,
-                completion:
-                    LoadCompletion {
-                        truncated,
-                        can_trash,
-                        can_delete,
-                    },
-            } => {
-                let finished = self
-                    .state
-                    .borrow_mut()
-                    .finish(request_id, truncated, can_trash, can_delete);
-                if let Some(depth) = finished {
-                    self.emit(BrowserEvent::LoadFinished { depth, truncated });
-                    self.ensure_sorted_after_load(depth);
-                }
-            }
-            RemoteTerminal::Failed {
-                request_id,
-                message,
-            } => {
-                let failed = self.state.borrow_mut().fail(request_id, message.clone());
-                if let Some(depth) = failed {
-                    self.emit(BrowserEvent::LoadFailed { depth, message });
-                }
-            }
-        }
-    }
-
-    fn arm_remote_flush_timer(self: &Rc<Self>) {
-        if self.remote_flush_timer.borrow().is_some() {
-            return;
-        }
-        let weak: Weak<Self> = Rc::downgrade(self);
-        let source = gio::glib::timeout_add_local_once(REMOTE_FLUSH_DELAY, move || {
-            if let Some(browser) = weak.upgrade() {
-                // Spent: disarm before flushing; a fired id refuses removal.
-                browser.remote_flush_timer.borrow_mut().take();
-                browser.flush_coalesced_capped(None);
-            }
-        });
-        *self.remote_flush_timer.borrow_mut() = Some(source);
     }
 
     /// Sorts a staged snapshot off-thread, then installs, reconciles, and publishes
@@ -2809,12 +2991,7 @@ impl Browser {
         } else {
             self.sort_loads.borrow_mut().retain(|depth, _| *depth < len);
         }
-        self.coalesce_pending
-            .borrow_mut()
-            .retain(|depth, _| *depth < len);
-        self.remote_terminals
-            .borrow_mut()
-            .retain(|depth, _| *depth < len);
+        self.remote.borrow_mut().retain_depths(len);
         self.last_batch_selection
             .borrow_mut()
             .retain(|depth, _| *depth < len);
@@ -2931,8 +3108,7 @@ impl Browser {
                 self.emit(BrowserEvent::SortingFinished { depth });
             }
         }
-        self.coalesce_pending.borrow_mut().clear();
-        self.remote_terminals.borrow_mut().clear();
+        self.remote.borrow_mut().clear();
         self.last_batch_selection.borrow_mut().clear();
         self.staging.borrow_mut().clear();
         self.sorting.borrow_mut().clear();
@@ -2940,9 +3116,7 @@ impl Browser {
         if let Some(source) = self.publish_timer.borrow_mut().take() {
             source.remove();
         }
-        if let Some(source) = self.remote_flush_timer.borrow_mut().take() {
-            source.remove();
-        }
+        self.cancel_remote_timer();
     }
 
     fn request_directory(
@@ -3078,8 +3252,7 @@ impl Browser {
         }
         self.metadata_loads.borrow_mut().remove(&depth);
         self.metadata_pending.borrow_mut().remove(&depth);
-        self.coalesce_pending.borrow_mut().remove(&depth);
-        self.remote_terminals.borrow_mut().remove(&depth);
+        self.remote.borrow_mut().clear_depth(depth);
         self.last_batch_selection.borrow_mut().remove(&depth);
         self.cancel_pending_sort_for(depth);
         self.staging.borrow_mut().remove(&depth);
@@ -3110,23 +3283,38 @@ impl Browser {
         }
     }
 
+    #[cfg(test)]
     pub fn select_entries_by_name(self: &Rc<Self>, names: &[String]) {
-        let requested: HashSet<&str> = names.iter().map(String::as_str).collect();
-        self.select_entries_matching(|entry| requested.contains(entry.display_name.as_str()));
-    }
-
-    pub fn select_entries_by_location(self: &Rc<Self>, locations: &[Location]) {
-        let requested: HashSet<_> = locations.iter().collect();
-        self.select_entries_matching(|entry| requested.contains(&entry.location));
-    }
-
-    fn select_entries_matching(self: &Rc<Self>, matches: impl Fn(&FileEntry) -> bool) {
         let Some(depth) = self.active_depth() else {
             return;
         };
+        self.select_entries_by_name_at(depth, names);
+    }
+
+    pub fn select_entries_by_name_at(self: &Rc<Self>, depth: usize, names: &[String]) -> bool {
+        let requested: HashSet<&str> = names.iter().map(String::as_str).collect();
+        self.select_entries_matching_at(depth, |entry| {
+            requested.contains(entry.display_name.as_str())
+        })
+    }
+
+    pub fn select_entries_by_location_at(
+        self: &Rc<Self>,
+        depth: usize,
+        locations: &[Location],
+    ) -> bool {
+        let requested: HashSet<_> = locations.iter().collect();
+        self.select_entries_matching_at(depth, |entry| requested.contains(&entry.location))
+    }
+
+    fn select_entries_matching_at(
+        self: &Rc<Self>,
+        depth: usize,
+        matches: impl Fn(&FileEntry) -> bool,
+    ) -> bool {
         let state = self.state.borrow();
         let Some(column) = state.columns.get(depth) else {
-            return;
+            return false;
         };
         let positions: Vec<usize> = column
             .entries
@@ -3136,7 +3324,7 @@ impl Browser {
             .collect();
         drop(state);
         let Some(&focused) = positions.first() else {
-            return;
+            return false;
         };
         self.commit_selection();
         self.set_selection(depth, &positions, Some(focused));
@@ -3146,6 +3334,96 @@ impl Browser {
             focused,
             take_focus: true,
         });
+        true
+    }
+
+    fn flush_deferred_file_operation_changes(
+        self: &Rc<Self>,
+        changes: DeferredDirectoryChanges,
+        prefer_refresh: bool,
+    ) -> bool {
+        if changes.is_empty() {
+            return false;
+        }
+        let mut batches: Vec<_> = changes.into_iter().collect();
+        batches.sort_by_key(|(depth, _)| *depth);
+        if prefer_refresh {
+            // Monitor batches may cover only some of the operation's source directories.
+            self.refresh_all();
+            return true;
+        }
+
+        for (depth, changes) in batches {
+            if changes
+                .iter()
+                .any(|(_, change)| matches!(change, DirectoryChange::Rescan))
+            {
+                self.refresh_column(depth);
+                continue;
+            }
+            let relocates_open_path = changes.iter().any(|(_, change)| {
+                matches!(change, DirectoryChange::Move { .. })
+                    && self
+                        .state
+                        .borrow()
+                        .path_after_external_change(depth, change)
+                        .is_some()
+            });
+            if relocates_open_path {
+                for (watched, change) in changes {
+                    self.handle_directory_change(depth, &watched, change);
+                }
+                continue;
+            }
+            let path_update = {
+                let state = self.state.borrow();
+                changes
+                    .iter()
+                    .find_map(|(_, change)| state.path_after_external_change(depth, change))
+            };
+            if let Some(path) = path_update {
+                self.restore_path(path);
+                continue;
+            }
+
+            self.drain_publish(depth);
+            let application = {
+                let mut state = self.state.borrow_mut();
+                let mut splices = Vec::new();
+                let mut selected = None;
+                for (watched, change) in changes {
+                    if let Some((mut next, next_selected)) =
+                        state.apply_directory_change(depth, &watched, change)
+                    {
+                        splices.append(&mut next);
+                        selected = next_selected;
+                    }
+                }
+                (!splices.is_empty()).then(|| {
+                    let positions = state.selected_positions(depth);
+                    (splices, selected, positions)
+                })
+            };
+            let Some((splices, selected, positions)) = application else {
+                continue;
+            };
+            self.emit(BrowserEvent::EntriesSpliced { depth, splices });
+            if let Some(focused) = selected {
+                self.emit(BrowserEvent::SelectionSetChanged {
+                    depth,
+                    positions,
+                    focused,
+                    take_focus: false,
+                });
+            }
+            if self.active_depth() == Some(depth) {
+                self.emit(BrowserEvent::FocusChanged {
+                    depth,
+                    position: selected,
+                });
+            }
+        }
+        false
     }
 
     fn handle_directory_change(
@@ -3154,6 +3432,17 @@ impl Browser {
         watched: &Location,
         change: DirectoryChange,
     ) {
+        if self.location_at(depth).as_ref() != Some(watched) {
+            return;
+        }
+        if self.deletion_operation.get() || self.restoration_operation.get() {
+            self.deferred_file_operation_changes
+                .borrow_mut()
+                .entry(depth)
+                .or_default()
+                .push((watched.clone(), change));
+            return;
+        }
         if matches!(&change, DirectoryChange::Rescan) {
             self.refresh_column(depth);
             return;
@@ -3186,37 +3475,31 @@ impl Browser {
             .state
             .borrow()
             .path_after_external_change(depth, &change);
-        if let Some(path) = path_update {
+        if let Some(path) = path_update
+            && !matches!(&change, DirectoryChange::Move { .. })
+        {
             self.restore_path(path);
             return;
         }
+        let relocation = match &change {
+            DirectoryChange::Move { from, entry } => Some((from.clone(), entry.location.clone())),
+            _ => None,
+        };
         let application = self
             .state
             .borrow_mut()
             .apply_directory_change(depth, watched, change);
         if let Some((splices, selected)) = application {
-            let positions = self.state.borrow().selected_positions(depth);
-            self.emit(BrowserEvent::EntriesSpliced {
-                depth,
-                splices,
-                selected,
-            });
-            if let Some(focused) = selected {
-                self.emit(BrowserEvent::SelectionSetChanged {
-                    depth,
-                    positions,
-                    focused,
-                    take_focus: false,
-                });
-            }
-            // Monitor updates to an ancestor must not reclaim focus after a
-            // transfer has revealed its destination in a child column.
-            if self.active_depth() == Some(depth) {
+            self.emit(BrowserEvent::EntriesSpliced { depth, splices });
+            if selected.is_none() && self.active_depth() == Some(depth) {
                 self.emit(BrowserEvent::FocusChanged {
                     depth,
-                    position: selected,
+                    position: None,
                 });
             }
+        }
+        if let Some((from, to)) = relocation {
+            self.relocate_open_columns(&from, &to);
         }
     }
 

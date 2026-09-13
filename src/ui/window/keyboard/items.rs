@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 
 use std::rc::Rc;
 
@@ -32,6 +32,7 @@ impl Dispatcher {
         }
         if event.key == Key::Delete
             && !self.view.filter_has_focus()
+            && !event.text_has_focus()
             && self.view.confirm_delete(event.shift())
         {
             return Some(Propagation::Stop);
@@ -46,7 +47,7 @@ impl Dispatcher {
     }
 
     fn dismiss_preview_or_selection(&self, browser: &Browser) -> KeyResult {
-        if self.preview.is_open() {
+        if self.preview.is_enabled() {
             self.preview.close();
             return Some(Propagation::Stop);
         }
@@ -101,8 +102,9 @@ impl Dispatcher {
             return Propagation::Stop;
         }
         self.view.commit_selection();
-        if !event.control() {
-            self.view.resume_native_selection();
+        let started_from_empty = !event.control() && self.view.resume_native_selection();
+        if event.shift() && started_from_empty {
+            return Propagation::Stop;
         }
         if event.without(Modifiers::CONTROL_MASK | Modifiers::SHIFT_MASK)
             && let Some(direction) = sidebar_focus_direction(event.key)
@@ -134,7 +136,13 @@ impl Dispatcher {
                 self.view.copy_path();
             }
             Key::p | Key::P => self.view.pin_focused(),
-            Key::space => self.preview.toggle(preview_target(browser.focused_entry())),
+            Key::space
+                if event.without(Modifiers::SHIFT_MASK | Modifiers::SUPER_MASK)
+                    && self.view.activate_directory_column() => {}
+            Key::space => self.preview.toggle(
+                preview_target(browser.focused_entry()),
+                browser.active_depth(),
+            ),
             Key::BackSpace => self.view.navigate_up(),
             _ => return None,
         }

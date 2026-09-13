@@ -5,10 +5,13 @@ pkgbase = strata-bin
 	url = https://github.com/lgse/strata
 	arch = x86_64
 	arch = aarch64
-	license = GPL-3.0-or-later
+	license = MIT
+	license = LicenseRef-UnRAR
 	depends = bubblewrap
 	depends = fontconfig
 	depends = glibc>=2.39
+	depends = gstreamer>=1.20
+	depends = gst-plugins-base
 	depends = gtk4>=4.12
 	depends = gtksourceview5
 	depends = gvfs

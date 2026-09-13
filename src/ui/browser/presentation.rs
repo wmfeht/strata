@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 
 use gtk::prelude::*;
 
@@ -65,6 +65,14 @@ impl LoadPresentation {
             retry.set_visible(false);
         }
         self.loading.show("feedback");
+    }
+
+    pub(super) fn show_empty_if_ready(&self) {
+        let showing_error = self.stack.visible_child_name().as_deref() == Some("feedback")
+            && self.message.has_css_class("error");
+        if !showing_error {
+            self.show_empty();
+        }
     }
 
     pub(super) fn show_error(&self, message: &str) {

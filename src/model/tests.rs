@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 
 use super::*;
 
@@ -30,6 +30,19 @@ fn uri_locations_remain_explicit_and_have_one_breadcrumb() {
 }
 
 #[test]
+fn uri_display_names_are_percent_decoded() {
+    assert_eq!(
+        Location::uri("smb://server/share/My%20Share").display_name(),
+        "My Share"
+    );
+    assert_eq!(
+        Location::uri("sftp://host/caf%C3%A9/").display_name(),
+        "café"
+    );
+    assert_eq!(Location::uri("sftp://host/").display_name(), "host");
+}
+
+#[test]
 fn remote_locations_keep_uri_parents_and_breadcrumbs() {
     let location = Location::uri("smb://server/share/folder");
 
@@ -41,6 +54,45 @@ fn remote_locations_keep_uri_parents_and_breadcrumbs() {
         breadcrumbs
             .iter()
             .all(|crumb| crumb.native_path().is_none())
+    );
+}
+
+#[test]
+fn rebasing_preserves_uri_descendants_and_rejects_unrelated_or_mixed_locations() {
+    for scheme in ["smb", "sftp"] {
+        let from = Location::uri(format!("{scheme}://host/share/old"));
+        let to = Location::uri(format!("{scheme}://host/share/new%20folder"));
+        for suffix in ["", "/nested/report%20%231.txt"] {
+            let original = Location::uri(format!("{scheme}://host/share/old{suffix}"));
+            let rebased = original.rebase(&from, &to).expect("rebased URI");
+            let expected =
+                gio::File::for_uri(&format!("{scheme}://host/share/new%20folder{suffix}"));
+            assert!(gio::File::for_uri(rebased.uri_value().expect("rebased URI")).equal(&expected));
+            assert!(rebased.native_path().is_none());
+        }
+        for unrelated in [
+            format!("{scheme}://host/share/older/nested"),
+            format!("{scheme}://other/share/old/nested"),
+            format!("{scheme}://host/elsewhere/old"),
+        ] {
+            assert!(Location::uri(unrelated).rebase(&from, &to).is_none());
+        }
+        assert!(
+            from.rebase(&from, &Location::local("/fixture/new"))
+                .is_none()
+        );
+    }
+    let from = Location::local("/fixture/old");
+    let to = Location::local("/fixture/new");
+    assert_eq!(from.rebase(&from, &to), Some(to.clone()));
+    assert_eq!(
+        Location::local("/fixture/old/nested").rebase(&from, &to),
+        Some(Location::local("/fixture/new/nested"))
+    );
+    assert!(
+        Location::local("/fixture/older")
+            .rebase(&from, &to)
+            .is_none()
     );
 }
 

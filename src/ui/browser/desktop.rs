@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 
 use crate::adapters::gio_file_for_location;
 use crate::model::{FileEntry, Location};
@@ -40,13 +40,18 @@ async fn launch_uri_default(file: &gio::File) -> Result<(), glib::Error> {
             glib::Priority::DEFAULT,
         )
         .await?;
+    let requires_uris = crate::ui::open_with::requires_uri_handlers(std::slice::from_ref(file));
     let app = info
         .content_type()
-        .and_then(|content_type| gio::AppInfo::default_for_type(&content_type, true))
+        .and_then(|content_type| gio::AppInfo::default_for_type(&content_type, requires_uris))
         .ok_or_else(|| {
             glib::Error::new(
                 gio::IOErrorEnum::NotSupported,
-                "No URI-capable application is registered for this file",
+                if requires_uris {
+                    "No URI-capable application is registered for this file"
+                } else {
+                    "No application is registered for this file"
+                },
             )
         })?;
     crate::ui::open_with::launch(
@@ -91,14 +96,23 @@ fn executable_without_handler(path: Option<&Path>, error: &glib::Error) -> bool 
     error.matches(gio::IOErrorEnum::NotSupported) && path.is_some_and(is_regular_executable)
 }
 
-fn is_regular_executable(path: &Path) -> bool {
+pub(super) fn is_regular_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     std::fs::metadata(path)
         .map(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
         .unwrap_or(false)
 }
 
-fn confirm_run_program(location: &Location, parent: &impl IsA<gtk::Widget>) {
+pub(super) fn entry_is_regular_executable(entry: &FileEntry) -> bool {
+    entry.location.native_path().is_some()
+        && matches!(
+            entry.kind,
+            crate::model::EntryKind::File | crate::model::EntryKind::FileSymbolicLink
+        )
+        && matches!(entry.mode, crate::model::MetadataValue::Known(mode) if mode & 0o111 != 0)
+}
+
+pub(super) fn confirm_run_program(location: &Location, parent: &impl IsA<gtk::Widget>) {
     let Some(ModalHost {
         overlay: window_overlay,
         blurred_root,

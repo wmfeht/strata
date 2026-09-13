@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Moving entries by dragging them between folders."""
 
 from __future__ import annotations
@@ -129,3 +129,131 @@ def test_dragging_a_multi_selection_moves_every_entry(strata):
     )
     assert not fixture.path("todo.txt").exists()
     assert not fixture.path("readme.md").exists()
+
+
+ROW_DRAG_MODES = [
+    mode for mode in ALL_MODES if mode.id != "icons"
+]
+
+
+@pytest.mark.preferences(single_click_previews=True)
+@pytest.mark.parametrize("mode", ROW_DRAG_MODES)
+def test_empty_name_space_drag_respects_view_policy(strata, mode):
+    """Columns keep whole-row dragging; List name whitespace starts selection."""
+
+    fixture = strata.fixture
+    source = strata.entry("todo.txt")
+    target = strata.entry("archive")
+    start = strata.pointer.row_whitespace_point(source, "todo.txt")
+
+    strata.pointer.drag_points(start, target.screen_bounds().center)
+
+    if mode == "List":
+        expect_name_space_marquee(strata)
+        return
+    strata.wait(
+        lambda: fixture.path("archive/todo.txt").exists(),
+        "the file dragged from empty row space to arrive in archive",
+    )
+    strata.wait(
+        lambda: not fixture.path("todo.txt").exists(),
+        "the file dragged from empty row space to leave its source directory",
+    )
+
+
+def expect_name_space_marquee(strata):
+    strata.wait(
+        lambda: {"archive", "todo.txt"} <= set(strata.selected_names()),
+        "name-column whitespace to select files rather than move one",
+    )
+    assert strata.fixture.path("todo.txt").exists()
+    assert not strata.fixture.path("archive/todo.txt").exists()
+    assert strata.preview() is None
+
+
+def drag_from_row_padding(strata, mode, edge):
+    fixture = strata.fixture
+    source = strata.entry("todo.txt")
+    target = strata.entry("archive")
+    start = strata.pointer.row_padding_point(source, edge)
+    if mode == "List":
+        start = (strata.pointer.row_whitespace_point(source, "todo.txt")[0], start[1])
+
+    strata.pointer.drag_points(start, target.screen_bounds().center)
+
+    if mode == "List":
+        expect_name_space_marquee(strata)
+        source = strata.select_entry_with_keyboard("todo.txt")
+        start = metadata_drag_origin(strata, source, edge)
+        strata.pointer.drag_points(start, strata.entry("archive").screen_bounds().center)
+    strata.wait(
+        lambda: fixture.path("archive/todo.txt").exists(),
+        f"the file dragged from {edge} row padding to arrive in archive",
+    )
+    strata.wait(
+        lambda: not fixture.path("todo.txt").exists(),
+        f"the file dragged from {edge} row padding to leave its source directory",
+    )
+
+
+@pytest.mark.preferences(single_click_previews=True)
+@pytest.mark.parametrize("mode", ROW_DRAG_MODES)
+@pytest.mark.parametrize("edge", ["top", "bottom"])
+def test_row_padding_drag_respects_view_policy(strata, mode, edge):
+    drag_from_row_padding(strata, mode, edge)
+
+
+@pytest.mark.preferences(browser_density="airy", single_click_previews=True)
+@pytest.mark.parametrize("mode", ROW_DRAG_MODES)
+@pytest.mark.parametrize("edge", ["top", "bottom"])
+def test_airy_row_padding_drag_respects_view_policy(strata, mode, edge):
+    drag_from_row_padding(strata, mode, edge)
+
+
+def metadata_drag_origin(strata, source, edge=None):
+    metadata = next(
+        label for label in source.find_all(role="label")
+        if label.name and label.name != "todo.txt"
+    )
+    bounds = metadata.screen_bounds()
+    y = bounds.center[1] if edge is None else strata.pointer.row_padding_point(source, edge)[1]
+    return bounds.x + 4, y
+
+
+@pytest.mark.preferences(browser_mode="list", single_click_previews=True)
+def test_list_metadata_still_starts_a_file_drag(strata):
+    source = strata.entry("todo.txt")
+    strata.pointer.drag_points(
+        metadata_drag_origin(strata, source),
+        strata.entry("archive").screen_bounds().center,
+    )
+    strata.wait(
+        lambda: strata.fixture.path("archive/todo.txt").exists(),
+        "dragging metadata to move the file",
+    )
+    assert not strata.fixture.path("todo.txt").exists()
+    assert strata.preview() is None
+
+
+@pytest.mark.preferences(folder_peeking=True, browser_mode="icons")
+def test_starting_a_drag_cancels_a_folder_peek(strata):
+    """#621: a drag beginning must cancel any open folder peek in Icons view."""
+
+    pane = strata.pane()
+    pane_bounds = pane.screen_bounds()
+    strata.pointer.move_to(pane_bounds.x + 20, pane_bounds.y + pane_bounds.height - 20)
+
+    folder = strata.entry("archive")
+    start = strata.pointer.drag_origin(folder)
+    strata.pointer.move_to(*start)
+    strata.wait(lambda: strata.peek() is not None, "the folder peek to open on hover")
+
+    target = strata.entry("documents")
+    strata.pointer.drag_points(start, target.screen_bounds().center, release=False)
+    try:
+        strata.wait(
+            lambda: strata.peek() is None,
+            "the peek to close when the drag starts",
+        )
+    finally:
+        strata.pointer.connection.button(1, False)

@@ -8,7 +8,7 @@
 
 [![CI](https://github.com/lgse/strata/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/lgse/strata/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/lgse/strata?display_name=tag&sort=semver)](https://github.com/lgse/strata/releases/latest)
-[![License: GPL-3.0-or-later](https://img.shields.io/github/license/lgse/strata)](LICENSE)
+[![License: MIT](https://img.shields.io/github/license/lgse/strata)](LICENSE)
 [![Linux](https://img.shields.io/badge/platform-Linux-FCC624?logo=linux&logoColor=black)](#technical-specifications)
 
 <picture>
@@ -47,7 +47,7 @@ Strata combines spatial Miller-column navigation with familiar Icons and List vi
 ## Features
 
 - **Three browser modes:** navigable Columns, an Icons grid, and a sortable List table.
-- **Keyboard-first control:** Vim-style movement, navigation history, location entry, pane filtering, fuzzy search, file operations, and quick previews. An optional footer and F1 shortcut reference help you learn each mode; the footer also highlights when files are available to paste. See [keyboard navigation and paste destinations](docs/keyboard-navigation.md).
+- **Keyboard-first control:** directional-key movement, navigation history, location entry, pane filtering, fuzzy search, file operations, and quick previews. An optional footer and F1 shortcut reference help you learn each mode; the footer also highlights when files are available to paste. See [keyboard navigation and paste destinations](docs/keyboard-navigation.md).
 - **Fast recursive search:** press <kbd>Ctrl</kbd>+<kbd>K</kbd> to find files and directories by name or path while the tree is still being indexed. Global search covers Home and all mounted local drives, regardless of the current folder. Hover the search field to see the included locations. The dialog warns when results are incomplete; folder-scoped filtering/search remains separate. URI-native remote shares are not yet included.
 - **Rich previews and thumbnails:** bounded previews for text, source code, images, camera RAW, PDF, audio, and video, with native parser-backed formats isolated from the application.
 - **Responsive filesystem work:** cancellable directory loading, bounded streaming, incremental monitoring, stable selection, and virtualized large directories.
@@ -120,9 +120,10 @@ Then:
   FFmpeg/GStreamer, and desktop-integration runtime dependencies using the system
   package manager. Add gvfs-smb only if I want SMB support.
 - Download the archive and its matching .sha256 file from the latest GitHub release.
-- Verify the checksum with sha256sum --check and verify GitHub Actions provenance
-  with `gh attestation verify <archive> --repo lgse/strata`. Stop on any failure;
-  never install an unverified binary.
+- Verify the checksum with sha256sum --check. If GitHub CLI is installed and
+  authenticated, also verify GitHub Actions provenance with
+  `gh attestation verify <archive> --repo lgse/strata`. Stop if either attempted
+  verification fails; never install a binary with an invalid checksum.
 - Extract it and install `strata` to ~/.local/bin/strata without overwriting an
   unrelated file. Ensure ~/.local/bin is on PATH.
 - Ask whether I want a per-user desktop entry and inode/directory association;
@@ -157,7 +158,7 @@ On Arch Linux or Omarchy:
 
 ```bash
 sudo pacman -S --needed bubblewrap ffmpeg ffmpegthumbnailer fontconfig \
-  gst-libav gst-plugins-good gtk4 gtksourceview5 gvfs poppler-glib
+  gstreamer gst-libav gst-plugins-base gst-plugins-good gtk4 gtksourceview5 gvfs poppler-glib
 # Optional SMB and broader camera RAW support:
 sudo pacman -S --needed gvfs-smb imagemagick libraw dcraw
 ```
@@ -170,19 +171,26 @@ may be absent from Devices. SMB support remains optional.
 
 #### 2. Download and verify
 
-From the [latest release](https://github.com/lgse/strata/releases/latest), download the `.tar.gz` matching `$target` and its identically named `.sha256` file. Then verify both its digest and signed GitHub Actions provenance:
+From the [latest release](https://github.com/lgse/strata/releases/latest), download the `.tar.gz` matching `$target` and its identically named `.sha256` file over HTTPS. Then verify its digest:
 
 ```bash
 cd ~/Downloads
 archive="strata-<version>-${target}.tar.gz"
 sha256sum --check "${archive}.sha256"
-gh attestation verify "$archive" --repo lgse/strata
-tar -xzf "$archive"
 ```
 
-Both verification commands must succeed. Install the binary and confirm it starts:
+If GitHub CLI is installed and authenticated, you can additionally verify the
+archive's signed GitHub Actions provenance before extracting it:
 
 ```bash
+gh attestation verify "$archive" --repo lgse/strata
+```
+
+Every verification you run must succeed. Extract the archive, install the binary,
+and confirm it starts:
+
+```bash
+tar -xzf "$archive"
 install -Dm755 "${archive%.tar.gz}/strata" "$HOME/.local/bin/strata"
 command -v strata
 strata
@@ -216,6 +224,7 @@ Launch Strata with an optional local directory:
 ```bash
 strata                 # home directory
 strata ~/Documents     # a specific directory
+strata --version       # print the installed version
 ```
 
 Useful shortcuts include <kbd>Ctrl</kbd>+<kbd>K</kbd> for recursive search, <kbd>Ctrl</kbd>+<kbd>L</kbd> for a path or URI, <kbd>Ctrl</kbd>+<kbd>F</kbd> to filter the current pane, <kbd>Ctrl</kbd>+<kbd>Z</kbd> to undo the latest move or move to Trash, <kbd>Space</kbd> for preview, <kbd>F2</kbd> to rename, and <kbd>Alt</kbd>+arrow keys for history and parent navigation.
@@ -239,7 +248,7 @@ xdg-mime query default inode/directory
 
 The final command should print `io.github.lgse.Strata.desktop`. The desktop entry's filename matches the `io.github.lgse.Strata` application ID that Strata's windows report, so desktop shells match a running window to this entry and draw its `Icon` value. Log out and back in if a shell caches launcher icons.
 
-When building from source, `make install-local` installs the binary, icon, and desktop entry in the same locations, and `make uninstall-local` removes them.
+When building from source, `mise run install-local` installs the binary, icon, and desktop entry in the same locations, and `mise run uninstall-local` removes them.
 
 ### "Open file location" from other applications
 
@@ -248,7 +257,7 @@ Browsers and GTK/GNOME applications reveal a file by calling the `org.freedeskto
 For a source installation, enable Strata as the per-user activatable provider explicitly:
 
 ```bash
-make install-file-manager
+mise run install-file-manager
 ```
 
 For an AUR package, copy its inactive service template into your per-user service directory:
@@ -268,7 +277,7 @@ sed "s|^Exec=/usr/bin/strata |Exec=$HOME/.local/bin/strata |" \
   > ~/.local/share/dbus-1/services/io.github.lgse.Strata.FileManager1.service
 ```
 
-A per-user provider takes precedence over system providers shipped by other file managers. Before enabling Strata manually, remove any other per-user service whose `Name` is `org.freedesktop.FileManager1`; two providers for the same name in one service directory are chosen arbitrarily. If another file manager already owns the bus name, exit it before testing. Use `make uninstall-file-manager` for a source installation, or remove the per-user service file, to disable Strata again.
+A per-user provider takes precedence over system providers shipped by other file managers. Before enabling Strata manually, remove any other per-user service whose `Name` is `org.freedesktop.FileManager1`; two providers for the same name in one service directory are chosen arbitrarily. If another file manager already owns the bus name, exit it before testing. Use `mise run uninstall-file-manager` for a source installation, or remove the per-user service file, to disable Strata again.
 
 Strata then answers `ShowFolders`, `ShowItems`, and `ShowItemProperties`, opening the directory that holds the named items with those items selected:
 
@@ -321,19 +330,21 @@ Press <kbd>Ctrl</kbd>+<kbd>L</kbd>, enter an address such as `smb://server/share
 
 ## Theming
 
-Open **Settings → Theme & appearance** from the gear menu or with <kbd>Ctrl</kbd>+<kbd>,</kbd>. Theme changes apply immediately across the interface.
+Open **Settings → Appearance** from the gear menu or with <kbd>Ctrl</kbd>+<kbd>,</kbd>. Theme changes apply immediately across the interface.
+
+Use **Search settings** to filter options across pages and navigate to the closest match, including keywords such as “font size.” In compact windows, the magnifying-glass button opens the search field. Clear the query or press <kbd>Esc</kbd> in the field to restore all settings.
 
 ![Strata Theme and appearance settings showing Omarchy following, six bundled themes, and the Add a theme option](docs/assets/strata-themes.png)
 
 ### Follow Omarchy Quattro
 
-On **Omarchy Quattro**, turn on **Follow Omarchy** under **Settings → Theme & appearance**. Strata maps the active Omarchy palette to its semantic colors, monitors the current theme, and updates live whenever Omarchy's theme changes.
+On **Omarchy Quattro**, turn on **Follow Omarchy** under **Settings → Appearance**. Strata maps the active Omarchy palette to its semantic colors, monitors the current theme, and updates live whenever Omarchy's theme changes.
 
 This integration supports Omarchy Quattro only. The switch is hidden when Strata cannot find a valid Quattro current-theme state; legacy Omarchy theme layouts are not supported.
 
 ### Bundled themes
 
-Choose any included theme from **Settings → Theme & appearance**: Azure Glow, Tokyo Night, Catppuccin, Everforest, Rosé Pine, or Omarchy Light. Selecting a bundled theme turns off Omarchy following and keeps that theme active across restarts.
+Choose any included theme from **Settings → Appearance**: Azure Glow, Tokyo Night, Catppuccin, Everforest, Rosé Pine, or Omarchy Light. Selecting a bundled theme turns off Omarchy following and keeps that theme active across restarts.
 
 ### Custom themes
 
@@ -365,7 +376,7 @@ The deliberate tradeoff: this is fast **filename and path** search, not file-con
 
 Files shown while browsing are untrusted. Image, camera RAW, PDF, thumbnail, and media parsing therefore runs out of process through **Bubblewrap**, not inside the main Strata process. Each short-lived helper receives namespace isolation, a minimal read-only runtime, exactly one canonicalized input file, private output and temporary directories, no network, and no capabilities. Memory, CPU/wall time, input, file, and parent-side output limits bound the work.
 
-Only media helpers may receive allowlisted GPU render devices, and only for accelerated transcoding; image, PDF, and thumbnail helpers receive no device mounts. Outputs are normalized and bounded, then checked for expected PNG, MP4, or WebM signatures before use. Cancellation or timeout kills the process group and Bubblewrap PID namespace, tearing down descendants. Missing isolation, crashes, malformed output, timeouts, and permission failures all fail closed to a normal icon or **Preview unavailable**—Strata never silently retries an untrusted native parser without the sandbox.
+Only media helpers may receive allowlisted GPU render devices, and only for accelerated decoding; image, PDF, and thumbnail helpers receive no device mounts. Images are normalized to bounded PNG images. Media arrives incrementally as validated raw RGBA frames and fixed-format PCM: GTK presents textures and GStreamer outputs raw audio, without opening the original file or decoding a compressed clip. Four media sessions per process, bounded queues, and paused-worker cleanup limit concurrent work. Cancellation or timeout kills the process group and Bubblewrap PID namespace, tearing down descendants. Missing isolation, crashes, malformed output, timeouts, and permission failures all fail closed to a normal icon or **Preview unavailable**—Strata never silently retries an untrusted native parser without the sandbox.
 
 Plain-text and source previews are different: they stay in process because they do not invoke a native format parser, and reads are capped at 1 MiB. See [Preview sandbox](docs/preview-sandbox.md) for provider ordering, exact mounts, formats, and resource budgets.
 
@@ -379,21 +390,21 @@ Plain-text and source previews are different: they stay in process because they 
 | Filesystems | Native Linux paths (including non-UTF-8 names) and GIO/GVfs locations; remote protocol availability depends on installed GVfs backends |
 | Preview boundary | Bubblewrap is mandatory for native parser-backed previews; helpers have no network and fail closed. Plain text is read in process with a 1 MiB cap. |
 | Optional preview tools | `ffmpegthumbnailer`/`ffmpeg` for video; ImageMagick, classic `dcraw`, and LibRaw `simple_dcraw` expand camera RAW support |
-| Hardware acceleration | Media-only VA-API or Vulkan attempts with software VP8/WebM fallback; GPU and codec support depend on host drivers/plugins |
+| Hardware acceleration | Media-only VA-API or Vulkan decoding with software fallback; GPU and codec support depend on host drivers |
 | Scale targets | Virtualized browser models and bounded asynchronous updates are tested with deterministic directories up to 100,000 entries |
 | Packaging | Dynamically linked release archive with SHA-256 digest, GitHub build-provenance attestation, and `SOURCE_COMMIT` |
 
 ## Development and documentation
 
-Build requirements are the latest stable Rust toolchain, a C toolchain, `pkg-config`, GTK 4.12+, GtkSourceView 5, Poppler GLib, and Fontconfig. With Nix, `nix develop` enters the same pinned environment CI uses. On Arch:
+Build requirements are the latest stable Rust toolchain, a C toolchain, `pkg-config`, GTK 4.12+, GtkSourceView 5, Poppler GLib, Fontconfig, and GStreamer 1.20+ (including its app/base development libraries). [mise](https://mise.jdx.dev) pins that toolchain locally (`mise install`). On Arch:
 
 ```bash
-sudo pacman -S --needed base-devel rust bubblewrap ffmpeg ffmpegthumbnailer fontconfig \
-  gst-libav gst-plugins-good gtk4 gtksourceview5 gvfs poppler-glib
-make start-dev        # rebuild and restart as files change
-make run-dev          # build and launch the main app once
-make run-chooser-dev  # build and open an isolated Save chooser with choices
-./scripts/check.sh    # format, compile, Clippy, tests, and optional policy checks
+sudo pacman -S --needed base-devel bubblewrap ffmpeg ffmpegthumbnailer fontconfig \
+  gstreamer gst-libav gst-plugins-base gst-plugins-good gtk4 gtksourceview5 gvfs poppler-glib
+mise run start-dev        # rebuild and restart as files change
+mise run dev              # build and launch the main app once
+mise run chooser-dev      # build and open an isolated Save chooser with choices
+mise run check            # format, compile, Clippy, tests, and policy checks
 ```
 
 Start with [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Deeper references:
@@ -415,4 +426,4 @@ This image is generated from GitHub contribution data so new contributors appear
 
 ## License
 
-Strata is free software licensed under **[GPL-3.0-or-later](LICENSE)**. Bundled fonts, icons, and other third-party components retain their own notices in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+Strata is free software licensed under the **[MIT License](LICENSE)**. Bundled fonts, icons, and other third-party components retain their own notices in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 
 mod search;
 mod trash;
@@ -44,6 +44,10 @@ fn recognizes_mainstream_image_and_video_formats() {
     );
     assert_eq!(
         thumbnail_kind(Path::new("animation.webp")),
+        Some(ThumbnailKind::Image)
+    );
+    assert_eq!(
+        thumbnail_kind(Path::new("vector.svg")),
         Some(ThumbnailKind::Image)
     );
     assert_eq!(

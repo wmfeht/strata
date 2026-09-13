@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 
 use super::*;
 use crate::model::{FileEntry, Location};
@@ -27,6 +27,46 @@ fn executable_fallback_requires_regular_executable_and_missing_handler()
     std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o644))?;
     assert!(!executable_without_handler(Some(&program), &no_handler));
     Ok(())
+}
+
+#[test]
+fn entry_executable_policy_accepts_regular_files_and_file_links() {
+    let entry = |kind, mode| FileEntry {
+        location: Location::local("/fixture/program"),
+        native_name: "program".into(),
+        thumbnail_path: None,
+        display_name: "program".into(),
+        kind,
+        size: crate::model::MetadataValue::Unknown,
+        modified_unix_seconds: crate::model::MetadataValue::Unknown,
+        is_hidden: false,
+        mode: crate::model::MetadataValue::Known(mode),
+    };
+
+    assert!(entry_is_regular_executable(&entry(
+        crate::model::EntryKind::File,
+        0o755,
+    )));
+    assert!(entry_is_regular_executable(&entry(
+        crate::model::EntryKind::FileSymbolicLink,
+        0o755,
+    )));
+    assert!(!entry_is_regular_executable(&entry(
+        crate::model::EntryKind::File,
+        0o644,
+    )));
+    assert!(!entry_is_regular_executable(&entry(
+        crate::model::EntryKind::Directory,
+        0o755,
+    )));
+
+    let mut remote = entry(crate::model::EntryKind::File, 0o755);
+    remote.location = Location::uri("smb://server/program");
+    assert!(!entry_is_regular_executable(&remote));
+
+    let mut unknown_mode = entry(crate::model::EntryKind::File, 0o755);
+    unknown_mode.mode = crate::model::MetadataValue::Unknown;
+    assert!(!entry_is_regular_executable(&unknown_mode));
 }
 
 #[test]

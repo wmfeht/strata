@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 
 use std::{cell::RefCell, rc::Rc};
 
@@ -17,6 +17,9 @@ use super::{
     super::{SidebarView, bind_update_notice_preferences, sidebar_update_label},
     WindowContent,
 };
+
+#[cfg(test)]
+mod tests;
 
 type AvailableUpdate = Rc<RefCell<Option<(ReleaseMetadata, String, UpdateMethod)>>>;
 
@@ -85,6 +88,13 @@ impl SettingsLauncher {
     }
 
     fn show(&self) {
+        let mut child = self.overlay.first_child();
+        while let Some(widget) = child {
+            child = widget.next_sibling();
+            if widget.is_visible() && widget.has_css_class("app-modal-layer") {
+                return;
+            }
+        }
         let layer = self.layer();
         self.blurred_root.set_blurred(true);
         layer.set_visible(true);

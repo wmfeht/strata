@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 
 use std::{
     cell::Cell,
@@ -203,6 +203,43 @@ fn reload_retains_views_until_terminal_reconnects_models() {
 }
 
 #[test]
+fn reload_reconnects_with_the_restored_multi_selection() {
+    gtk_test(
+        "ui::browser_modes::events::tests::reload_reconnects_with_the_restored_multi_selection",
+        || {
+            for (mode, grouped) in presentations() {
+                if grouped {
+                    continue;
+                }
+                let mut fixture = Fixture::new(mode, grouped);
+                fixture.browser.set_selection(0, &[0, 2], Some(2));
+                let pane = fixture.pane();
+                fixture
+                    .views
+                    .handle(&BrowserEvent::ColumnReloaded { depth: 0 });
+                fixture
+                    .views
+                    .handle(&BrowserEvent::EntriesReplaced { depth: 0, count: 3 });
+                fixture.views.handle(&BrowserEvent::LoadFinished {
+                    depth: 0,
+                    truncated: false,
+                });
+                assert_attached(&pane, true);
+                let selected: Vec<u32> = pane
+                    .item_sections()
+                    .into_iter()
+                    .flat_map(|section| {
+                        (0..section.selection.n_items())
+                            .filter(move |&position| section.selection.is_selected(position))
+                    })
+                    .collect();
+                assert_eq!(selected, vec![0, 2], "{mode:?} grouped={grouped}");
+            }
+        },
+    );
+}
+
+#[test]
 fn busy_insertions_and_splices_preserve_distinct_presentation_rules() {
     gtk_test(
         "ui::browser_modes::events::tests::busy_insertions_and_splices_preserve_distinct_presentation_rules",
@@ -228,7 +265,6 @@ fn busy_insertions_and_splices_preserve_distinct_presentation_rules() {
                 assert_eq!(pane.spinner.tooltip_text().as_deref(), Some("Sorting…"));
                 fixture.views.handle(&BrowserEvent::EntriesSpliced {
                     depth: 0,
-                    selected: None,
                     splices: vec![EntrySplice {
                         position: 0,
                         removed: 1,
@@ -250,6 +286,67 @@ fn busy_insertions_and_splices_preserve_distinct_presentation_rules() {
                 assert!(!pane.spinner.is_spinning());
                 assert!(!pane.spinner.get_visible());
                 assert!(pane.spinner.tooltip_text().is_none());
+            }
+        },
+    );
+}
+
+#[test]
+fn deferred_empty_state_stays_hidden_until_delete_animation_finishes() {
+    gtk_test(
+        "ui::browser_modes::events::tests::deferred_empty_state_stays_hidden_until_delete_animation_finishes",
+        || {
+            for (mode, grouped) in presentations() {
+                let mut fixture = Fixture::new(mode, grouped);
+                let pane = fixture.pane();
+
+                fixture.views.handle_with_deferred_empty(
+                    &BrowserEvent::EntriesSpliced {
+                        depth: 0,
+                        splices: vec![EntrySplice {
+                            position: 0,
+                            removed: 3,
+                            entries: Vec::new(),
+                        }],
+                    },
+                    true,
+                );
+
+                assert_eq!(pane.model.n_items(), 0);
+                assert_eq!(visible_page(&pane), "content");
+                fixture.views.show_empty_if_empty(0);
+                assert_eq!(visible_page(&pane), "status");
+                assert_eq!(pane.status.label(), "This directory is empty");
+            }
+        },
+    );
+}
+
+#[test]
+fn deferred_empty_state_survives_a_reload_finishing_during_delete_animation() {
+    gtk_test(
+        "ui::browser_modes::events::tests::deferred_empty_state_survives_a_reload_finishing_during_delete_animation",
+        || {
+            for (mode, grouped) in presentations() {
+                let mut fixture = Fixture::new(mode, grouped);
+                let pane = fixture.pane();
+
+                fixture
+                    .views
+                    .handle(&BrowserEvent::ColumnReloaded { depth: 0 });
+                fixture.views.handle_with_deferred_empty(
+                    &BrowserEvent::LoadFinished {
+                        depth: 0,
+                        truncated: false,
+                    },
+                    true,
+                );
+
+                assert_eq!(pane.model.n_items(), 0);
+                assert_ne!(visible_page(&pane), "status");
+                fixture.views.show_empty_if_empty(0);
+                assert_eq!(visible_page(&pane), "status");
+                assert_eq!(pane.status.label(), "This directory is empty");
             }
         },
     );
@@ -328,6 +425,148 @@ fn publication_releases_browser_borrows_before_gtk_notifications() {
 }
 
 #[test]
+fn mode_switching_reuses_existing_panes_and_reattaches_models() {
+    gtk_test(
+        "ui::browser_modes::events::tests::mode_switching_reuses_existing_panes_and_reattaches_models",
+        || {
+            let mut fixture = Fixture::new(BrowserMode::Icons, false);
+            let icons_shell = fixture.pane().shell.clone();
+            let icons_pane = fixture.pane();
+            assert_attached(&icons_pane, true);
+
+            fixture.views.prepare_mode(BrowserMode::List);
+            fixture.views.show_mode(BrowserMode::List);
+            fixture.views.clear_inactive_mode(BrowserMode::Icons);
+            let list_shell = fixture.pane().shell.clone();
+            let list_pane = fixture.pane();
+            assert_attached(&list_pane, true);
+            assert_attached(&icons_pane, false);
+            assert_eq!(
+                fixture.views.icons_panes.first().map(|p| &p.shell),
+                Some(&icons_shell)
+            );
+
+            fixture.views.prepare_mode(BrowserMode::Icons);
+            fixture.views.show_mode(BrowserMode::Icons);
+            fixture.views.clear_inactive_mode(BrowserMode::List);
+            assert_eq!(fixture.pane().shell, icons_shell);
+            assert_attached(&icons_pane, true);
+            assert_attached(&list_pane, false);
+            assert_eq!(
+                fixture.views.list_pane.as_ref().map(|p| &p.shell),
+                Some(&list_shell)
+            );
+        },
+    );
+}
+
+#[test]
+fn mode_switch_after_navigation_rebuilds_for_the_new_location() {
+    gtk_test(
+        "ui::browser_modes::events::tests::mode_switch_after_navigation_rebuilds_for_the_new_location",
+        || {
+            let mut fixture = Fixture::new(BrowserMode::Icons, false);
+            let icons_shell = fixture.pane().shell.clone();
+
+            fixture.views.prepare_mode(BrowserMode::List);
+            fixture.views.show_mode(BrowserMode::List);
+            fixture.views.clear_inactive_mode(BrowserMode::Icons);
+            fixture.browser.navigate(Location::local("/other"));
+            fixture.views.handle(&BrowserEvent::ColumnAdded {
+                depth: 0,
+                location: Location::local("/other"),
+            });
+            fixture
+                .views
+                .handle(&BrowserEvent::EntriesReplaced { depth: 0, count: 3 });
+            fixture.views.handle(&BrowserEvent::LoadFinished {
+                depth: 0,
+                truncated: false,
+            });
+
+            fixture.views.prepare_mode(BrowserMode::Icons);
+            assert_ne!(fixture.pane().shell, icons_shell);
+            assert_eq!(
+                fixture.pane().location.as_ref(),
+                Some(&Location::local("/other"))
+            );
+        },
+    );
+}
+
+#[test]
+fn mode_switch_after_grouping_change_rebuilds_the_list_pane() {
+    gtk_test(
+        "ui::browser_modes::events::tests::mode_switch_after_grouping_change_rebuilds_the_list_pane",
+        || {
+            let mut fixture = Fixture::new(BrowserMode::List, false);
+            let list_shell = fixture.pane().shell.clone();
+
+            fixture.views.prepare_mode(BrowserMode::Icons);
+            fixture.views.show_mode(BrowserMode::Icons);
+            fixture.views.clear_inactive_mode(BrowserMode::List);
+            fixture.views.set_group_by_type(true);
+
+            fixture.views.prepare_mode(BrowserMode::List);
+            assert_ne!(fixture.pane().shell, list_shell);
+            assert!(fixture.pane().group_by_type);
+        },
+    );
+}
+
+#[test]
+fn mode_switch_after_sort_change_uses_current_heading_direction() {
+    gtk_test(
+        "ui::browser_modes::events::tests::mode_switch_after_sort_change_uses_current_heading_direction",
+        || {
+            use crate::model::{SortDirection, SortKey};
+
+            let mut fixture = Fixture::new(BrowserMode::List, false);
+            fixture.views.prepare_mode(BrowserMode::Icons);
+            fixture.views.show_mode(BrowserMode::Icons);
+            fixture.views.clear_inactive_mode(BrowserMode::List);
+            fixture
+                .browser
+                .set_sort(0, SortKey::Name, SortDirection::Descending);
+            fixture.views.prepare_mode(BrowserMode::List);
+            fixture.views.show_mode(BrowserMode::List);
+            let pane = fixture.pane();
+            let mut widgets = vec![pane.shell.clone().upcast::<gtk::Widget>()];
+            let button = loop {
+                let widget = widgets.pop().expect("name heading button");
+                if widget.has_css_class("list-heading-button")
+                    && widget
+                        .first_child()
+                        .and_then(|row| row.first_child())
+                        .and_then(|label| label.downcast::<gtk::Label>().ok())
+                        .is_some_and(|label| label.text() == "Name")
+                {
+                    break widget.downcast::<gtk::Button>().expect("heading button");
+                }
+                let mut child = widget.first_child();
+                while let Some(current) = child {
+                    child = current.next_sibling();
+                    widgets.push(current);
+                }
+            };
+            button.emit_clicked();
+            let preferences = fixture.browser.column_preferences(0).expect("preferences");
+            assert_eq!(preferences.sort_key, SortKey::Name);
+            assert_eq!(preferences.sort_direction, SortDirection::Ascending);
+
+            fixture.views.prepare_mode(BrowserMode::Icons);
+            fixture.views.show_mode(BrowserMode::Icons);
+            fixture.views.clear_inactive_mode(BrowserMode::List);
+            fixture
+                .browser
+                .set_sort(0, SortKey::Name, SortDirection::Descending);
+            fixture.views.prepare_mode(BrowserMode::List);
+            assert_ne!(fixture.pane().shell, pane.shell);
+        },
+    );
+}
+
+#[test]
 fn inactive_depths_and_cached_modes_do_not_receive_row_updates() {
     gtk_test(
         "ui::browser_modes::events::tests::inactive_depths_and_cached_modes_do_not_receive_row_updates",
@@ -357,6 +596,41 @@ fn inactive_depths_and_cached_modes_do_not_receive_row_updates() {
             assert!(fixture.views.list_pane.is_none());
             assert!(fixture.views.icons_root.first_child().is_none());
             assert!(fixture.views.list_root.first_child().is_none());
+        },
+    );
+}
+
+#[test]
+fn relocation_preserves_external_focus_and_rebuilds_only_affected_panes() {
+    gtk_test(
+        "ui::browser_modes::events::tests::relocation_preserves_external_focus_and_rebuilds_only_affected_panes",
+        || {
+            for (mode, grouped) in presentations() {
+                let mut fixture = Fixture::new(mode, grouped);
+                fixture.show();
+                fixture.outside.grab_focus();
+                let original = fixture.pane().shell;
+                fixture
+                    .views
+                    .handle(&BrowserEvent::ColumnsRelocated { from_depth: 1 });
+                assert_eq!(fixture.pane().shell, original);
+                fixture
+                    .views
+                    .handle(&BrowserEvent::ColumnsRelocated { from_depth: 0 });
+                assert_ne!(fixture.pane().shell, original);
+                pump_until(|| fixture.pane().section.view.is_mapped());
+                let focus = gtk::prelude::RootExt::focus(&fixture.window).expect("outside focus");
+                assert!(focus == fixture.outside || focus.is_ancestor(&fixture.outside));
+
+                fixture.browser.select(0, 1);
+                fixture.views.focus_visible_pane(0);
+                pump_until(|| pane_holds_keyboard_focus(&fixture.pane()));
+                fixture
+                    .views
+                    .handle(&BrowserEvent::ColumnsRelocated { from_depth: 0 });
+                pump_until(|| pane_holds_keyboard_focus(&fixture.pane()));
+                assert_eq!(fixture.browser.selected_positions(0), [1]);
+            }
         },
     );
 }
@@ -467,6 +741,86 @@ fn list_metadata_updates_bound_rows_without_replacing_the_model() {
                 assert_eq!(size.label(), super::super::entry_size(&update));
                 assert_eq!(mode.label(), super::super::entry_mode(&update));
                 assert!(!changed.get());
+            }
+        },
+    );
+}
+
+fn native_select_item(view: &gtk::Widget, position: u32, modify: bool, extend: bool) {
+    view.activate_action(
+        "list.select-item",
+        Some(&(position, modify, extend).to_variant()),
+    )
+    .expect("list.select-item");
+}
+
+fn gtk_selected(pane: &Pane) -> Vec<usize> {
+    (0..pane.section.selection.n_items())
+        .filter(|&position| pane.section.selection.is_selected(position))
+        .map(|position| position as usize)
+        .collect()
+}
+
+#[test]
+fn resume_native_selection_starts_from_the_cursor_after_escape() {
+    gtk_test(
+        "ui::browser_modes::events::tests::resume_native_selection_starts_from_the_cursor_after_escape",
+        || {
+            for (mode, grouped) in presentations() {
+                let fixture = Fixture::new(mode, grouped);
+                fixture.show();
+                fixture.browser.select(0, 0);
+                fixture.browser.set_selection(0, &[0, 1], Some(1));
+                assert_eq!(fixture.browser.selected_positions(0), [0, 1]);
+                assert_eq!(fixture.browser.selection_anchor_position(0), Some(0));
+
+                assert!(fixture.browser.clear_active_selection());
+                assert!(fixture.browser.selected_positions(0).is_empty());
+                assert_eq!(
+                    fixture
+                        .browser
+                        .focused_item()
+                        .map(|(_, position, _)| position),
+                    Some(1)
+                );
+                assert_eq!(fixture.browser.selection_anchor_position(0), Some(0));
+
+                if !grouped {
+                    let pane = fixture.pane();
+                    pane.section.syncing.set(true);
+                    native_select_item(&pane.section.view, 0, false, false);
+                    native_select_item(&pane.section.view, 1, false, true);
+                    pane.section.syncing.set(false);
+                    assert_eq!(
+                        gtk_selected(&pane),
+                        [0, 1],
+                        "{mode:?}: plant GTK's leftover range origin on the first item"
+                    );
+                }
+
+                assert!(
+                    fixture.views.resume_native_selection(),
+                    "{mode:?} grouped={grouped}: seed the cursor when filled selection is empty"
+                );
+                assert_eq!(fixture.browser.selected_positions(0), [1]);
+                assert_eq!(
+                    fixture.browser.selection_anchor_position(0),
+                    Some(1),
+                    "{mode:?} grouped={grouped}: leftover range anchor must not be reused"
+                );
+                if !grouped {
+                    let view = fixture.pane().section.view.clone();
+                    native_select_item(&view, 2, false, true);
+                    assert_eq!(
+                        gtk_selected(&fixture.pane()),
+                        [1, 2],
+                        "{mode:?}: native Shift must not re-include the old range origin"
+                    );
+                }
+                assert!(
+                    !fixture.views.resume_native_selection(),
+                    "{mode:?} grouped={grouped}: a filled selection must keep native Shift movement"
+                );
             }
         },
     );
