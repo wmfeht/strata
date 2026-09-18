@@ -6,7 +6,9 @@ native_dependencies_available() {
     && pkg-config --exists fontconfig \
     && pkg-config --exists 'gtk4 >= 4.12' \
     && pkg-config --exists gtksourceview-5 \
-    && pkg-config --exists poppler-glib
+    && pkg-config --exists poppler-glib \
+    && pkg-config --exists 'gstreamer-1.0 >= 1.20' \
+    && pkg-config --exists 'gstreamer-app-1.0 >= 1.20'
 }
 
 run_as_root() {
@@ -24,14 +26,17 @@ install_native_dependencies() {
   echo "Native development dependencies are missing; installing them now..."
 
   if command -v pacman >/dev/null 2>&1; then
-    run_as_root pacman -S --needed base-devel rust fontconfig gtk4 gtksourceview5 poppler-glib
+    run_as_root pacman -S --needed base-devel rust fontconfig gtk4 gtksourceview5 \
+      poppler-glib gstreamer gst-plugins-base
   elif command -v apt-get >/dev/null 2>&1; then
     run_as_root apt-get update
     run_as_root apt-get install -y build-essential cargo rustc pkg-config \
-      libfontconfig1-dev libgtk-4-dev libgtksourceview-5-dev libpoppler-glib-dev
+      libfontconfig1-dev libgtk-4-dev libgtksourceview-5-dev libpoppler-glib-dev \
+      libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
   elif command -v dnf >/dev/null 2>&1; then
     run_as_root dnf install -y gcc gcc-c++ make rust cargo pkgconf-pkg-config \
-      fontconfig-devel gtk4-devel gtksourceview5-devel poppler-glib-devel
+      fontconfig-devel gtk4-devel gtksourceview5-devel poppler-glib-devel \
+      gstreamer1-devel gstreamer1-plugins-base-devel
   else
     echo "Unsupported package manager. Install the native dependencies listed in README.md." >&2
     return 1
