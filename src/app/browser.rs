@@ -182,6 +182,7 @@ pub enum BrowserEvent {
         transferred_bytes: u64,
         total_bytes: Option<u64>,
     },
+    FlushingToDevice,
     TransferFinished {
         moved_locations: Vec<Location>,
     },

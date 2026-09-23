@@ -252,6 +252,9 @@ pub enum OperationEvent {
         request_id: OperationRequestId,
         locations: Vec<Location>,
     },
+    FlushingToDevice {
+        request_id: OperationRequestId,
+    },
     /// A folder merge finished (or staged its backups): `created` are paths
     /// the merge wrote fresh, `overwritten` are paths whose originals now
     /// sit in Trash. Reported per merged source so undo can rebuild the
