@@ -1499,6 +1499,50 @@ impl BrowserView {
         }
     }
 
+    /// Selects the keyboard pane, ignoring the pointer-hovered column.
+    pub fn select_focused_pane(&self) -> bool {
+        self.keyboard_navigation();
+        let Some(depth) = self.focused_listing_depth() else {
+            return false;
+        };
+        self.state.browser.set_active_column(depth);
+        self.state.browser.select_visible(depth)
+    }
+
+    /// Inverts the keyboard pane. Rename stays on F2.
+    pub fn invert_focused_pane(&self) -> bool {
+        self.keyboard_navigation();
+        let Some(depth) = self.focused_listing_depth() else {
+            return false;
+        };
+        self.state.browser.set_active_column(depth);
+        self.state.browser.invert_visible(depth)
+    }
+
+    /// Toggles the cursor item and advances one row. Returns false when the pane is empty.
+    pub fn toggle_cursor_and_advance(&self) -> bool {
+        self.keyboard_navigation();
+        let Some(depth) = self.focused_listing_depth() else {
+            return false;
+        };
+        self.state.browser.set_active_column(depth);
+        if self.state.browser.toggle_cursor_fill() == crate::app::CursorToggle::Empty {
+            return false;
+        }
+        self.move_displayed_cursor(1, 1);
+        true
+    }
+
+    fn focused_listing_depth(&self) -> Option<usize> {
+        if self.view_mode() == BrowserMode::Columns {
+            self.state
+                .focused_column_depth()
+                .or_else(|| self.state.browser.active_depth())
+        } else {
+            self.state.browser.active_depth()
+        }
+    }
+
     pub fn open_terminal(&self) {
         self.state.sync_mode_selection();
         let selected = self.state.browser.selected_entries();
@@ -1857,7 +1901,6 @@ impl BrowserView {
         let collection = focused
             .as_ref()
             .and_then(super::scrolling::focused_collection);
-        self.state.mode_views.borrow().suppress_focus_scroll();
         let target = self.state.browser.active_depth().and_then(|depth| {
             self.state
                 .mode_views
@@ -1866,7 +1909,7 @@ impl BrowserView {
                 .map(|position| (depth, position))
         });
         if let Some((depth, position)) = target {
-            self.state.browser.select(depth, position);
+            self.state.browser.place_cursor(depth, position);
         } else {
             let order = self
                 .state
@@ -1876,7 +1919,7 @@ impl BrowserView {
                 .filter(|order| !order.is_empty());
             self.state
                 .browser
-                .page_along(direction, steps, order.as_deref());
+                .page_cursor(direction, steps, order.as_deref());
         }
         if let Some((view, scroll)) = collection {
             if steps == usize::MAX {

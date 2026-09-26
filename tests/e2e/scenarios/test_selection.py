@@ -270,3 +270,96 @@ def test_a_click_after_navigating_re_anchors_the_range(strata, mode, root):
         lambda: strata.selected_names("documents") == ["report.md", "spreadsheet.csv"],
         "the range to start at the clicked entry rather than the loaded one",
     )
+
+
+ROOT_ENTRIES = ["archive", "documents", "pictures", "readme.md", "todo.txt"]
+NEXT_ENTRY = {"Columns": "Down", "Icons": "Right", "List": "Down"}
+
+
+@pytest.mark.preferences(tenxer_mode=True, type_to_search=False, single_click_previews=False)
+@pytest.mark.parametrize("mode", ALL_MODES)
+def test_tenxer_space_toggles_the_cursor_and_keeps_the_fill(strata, mode, root):
+    if mode == "Columns":
+        _tenxer_columns_selection(strata, root)
+        return
+    strata.keyboard.press("Home")
+    strata.wait_for_focused_entry("archive")
+    hovered = strata.entry("todo.txt", root)
+    strata.pointer.move_to(*hovered.screen_bounds().center)
+    strata.keyboard.press(NEXT_ENTRY[mode])
+    strata.wait_for_focused_entry("documents")
+    strata.keyboard.press("space")
+    strata.wait_for_selection(["documents"], root)
+    assert strata.preview() is None
+    assert "todo.txt" not in strata.selected_names(root)
+    if mode == "Columns":
+        # The column list keeps AT-SPI focus on the toggled row; Down moves it.
+        strata.keyboard.press("Down")
+    strata.wait_for_focused_entry("pictures")
+
+    strata.keyboard.press("End")
+    strata.wait_for_focused_entry("todo.txt")
+    assert strata.selected_names(root) == ["documents"]
+
+    strata.keyboard.press("ctrl+a")
+    strata.wait_for_selection(ROOT_ENTRIES, root)
+    assert strata.focused_name() == "todo.txt"
+    strata.keyboard.press("Home")
+    strata.wait_for_focused_entry("archive")
+    assert strata.selected_names(root) == ROOT_ENTRIES
+
+    strata.keyboard.press("ctrl+r")
+    strata.wait(lambda: strata.selected_names(root) == [], "Ctrl+R to invert a full pane")
+    assert strata.focused_name() == "archive"
+    strata.keyboard.press("End")
+    strata.wait_for_focused_entry("todo.txt")
+    assert strata.selected_names(root) == []
+
+    if mode == "Columns":
+        strata.select_entry("documents", root)
+        strata.keyboard.press("i")
+        strata.wait(lambda: "documents" in strata.pane_names(), "the child column to open")
+        strata.hover_pane("documents")
+        strata.keyboard.press("ctrl+a")
+        strata.wait_for_selection(ROOT_ENTRIES, root)
+        assert set(strata.selected_names("documents")) != {
+            "notes.txt",
+            "report.md",
+            "spreadsheet.csv",
+        }
+
+    strata.keyboard.press("Home")
+    strata.wait_for_focused_entry("archive")
+    if mode == "Columns":
+        strata.keyboard.press("i")
+        strata.wait(lambda: "archive" in strata.pane_names(), "the empty column to open")
+        strata.keyboard.press("l")
+    else:
+        strata.keyboard.press("Return")
+    strata.wait_for_directory("archive")
+    strata.keyboard.press("space")
+    strata.wait(
+        lambda: strata.window.find(role="label", name="Nothing to select") is not None,
+        "Space in an empty folder to say there is nothing to select",
+    )
+    assert strata.selected_names("archive") == []
+    assert strata.preview() is None
+
+
+def _tenxer_columns_selection(strata, root: str) -> None:
+    strata.keyboard.press("Home")
+    strata.wait_for_focused_entry("archive")
+    hovered = strata.entry("todo.txt", root)
+    strata.pointer.move_to(*hovered.screen_bounds().center)
+    strata.keyboard.press("space")
+    strata.wait_for_selection(["archive"], root)
+    assert strata.preview() is None
+
+    strata.keyboard.press("ctrl+a")
+    strata.wait_for_selection(ROOT_ENTRIES, root)
+    strata.keyboard.press("End")
+    assert strata.selected_names(root) == ROOT_ENTRIES
+
+    strata.keyboard.press("ctrl+r")
+    strata.wait(lambda: strata.selected_names(root) == [], "Ctrl+R to invert the focused column")
+    assert strata.preview() is None

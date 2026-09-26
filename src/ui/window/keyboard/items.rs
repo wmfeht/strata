@@ -258,7 +258,7 @@ impl Dispatcher {
             return false;
         }
         if mods == Modifiers::CONTROL_MASK {
-            return self.tenxer_control_page(key);
+            return self.tenxer_control_page(key) || self.tenxer_selection_command(key);
         }
         if mods == Modifiers::ALT_MASK {
             return self.tenxer_alt_navigation(browser, key);
@@ -270,12 +270,7 @@ impl Dispatcher {
             return false;
         }
         if let Some(arrow) = crate::ui::focus_navigation::spatial_arrow(key) {
-            self.view.keyboard_navigation();
-            if search {
-                self.view.focus_search_results();
-            }
-            crate::ui::focus_navigation::activate_native_arrow(&self.window, arrow);
-            return true;
+            return self.move_icon_cursor(browser, arrow, search);
         }
         match key {
             Key::Home | Key::KP_Home if !search => self.jump_displayed(-1),
@@ -289,7 +284,42 @@ impl Dispatcher {
             Key::Page_Down | Key::KP_Page_Down if !search => {
                 self.view.page_displayed_cursor(1, false)
             }
+            Key::space if !search => self.toggle_tenxer_cursor(),
             _ => return false,
+        }
+        true
+    }
+
+    /// Grid motion keeps a multi-item fill. A single selection follows GTK's own
+    /// spatial cursor, including at the edges of the grid.
+    fn move_icon_cursor(&self, browser: &Rc<Browser>, arrow: Key, search: bool) -> bool {
+        let preserved = (!search).then_some(()).and_then(|_| {
+            let depth = browser.active_depth()?;
+            if browser.selection_is_load_cursor() {
+                return None;
+            }
+            let positions = browser.selected_positions(depth);
+            let cursor = browser
+                .focused_item()
+                .filter(|(item_depth, _, _)| *item_depth == depth)
+                .map(|(_, position, _)| position)?;
+            (positions.len() > 1).then_some((depth, positions, cursor))
+        });
+        if let Some((depth, _, cursor)) = preserved.clone() {
+            browser.install_pane_fill(depth, &[cursor], cursor);
+        }
+        self.view.keyboard_navigation();
+        if search {
+            self.view.focus_search_results();
+        }
+        crate::ui::focus_navigation::activate_native_arrow(&self.window, arrow);
+        if let Some((depth, positions, _)) = preserved {
+            let cursor = browser
+                .focused_item()
+                .filter(|(item_depth, _, _)| *item_depth == depth)
+                .map(|(_, position, _)| position)
+                .unwrap_or(0);
+            browser.install_pane_fill(depth, &positions, cursor);
         }
         true
     }
@@ -321,7 +351,7 @@ impl Dispatcher {
         }
         let mods = super::command_modifiers(modifiers);
         if mods == Modifiers::CONTROL_MASK {
-            return self.tenxer_control_page(key);
+            return self.tenxer_control_page(key) || self.tenxer_selection_command(key);
         }
         if mods == Modifiers::ALT_MASK {
             return self.tenxer_alt_navigation(browser, key);
@@ -333,6 +363,24 @@ impl Dispatcher {
             return false;
         }
         self.tenxer_plain(browser, key)
+    }
+
+    fn tenxer_selection_command(&self, key: Key) -> bool {
+        if self.view.selected_search_results().is_some() {
+            return false;
+        }
+        match key {
+            Key::a | Key::A => self.view.select_focused_pane(),
+            Key::r | Key::R => self.view.invert_focused_pane(),
+            _ => return false,
+        };
+        true
+    }
+
+    fn toggle_tenxer_cursor(&self) {
+        if !self.view.toggle_cursor_and_advance() {
+            self.shortcuts.show_feedback("Nothing to select");
+        }
     }
 
     fn tenxer_control_page(&self, key: Key) -> bool {
@@ -386,6 +434,12 @@ impl Dispatcher {
             }
             Key::Page_Up | Key::KP_Page_Up => self.view.page_displayed_cursor(-1, false),
             Key::Page_Down | Key::KP_Page_Down => self.view.page_displayed_cursor(1, false),
+            Key::space => {
+                if self.view.selected_search_results().is_some() {
+                    return false;
+                }
+                self.toggle_tenxer_cursor();
+            }
             _ => return false,
         }
         true

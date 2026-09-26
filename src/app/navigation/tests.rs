@@ -1900,3 +1900,181 @@ fn column_entry_counts_breakdown_and_hidden() {
         })
     );
 }
+
+#[test]
+fn space_adds_a_load_cursor_then_moves_without_rewriting_the_fill() {
+    let mut state = NavigationState::default();
+    listing_with_the_first_entry_selected(&mut state);
+    assert!(state.selection_is_load_cursor());
+    assert_eq!(state.selected_positions(0), [0]);
+
+    assert_eq!(state.toggle_cursor_fill(), CursorToggle::Added);
+    assert!(!state.selection_is_load_cursor());
+    assert_eq!(state.selected_positions(0), [0]);
+    assert_eq!(
+        state.focused_entry().map(|(_, position, _)| position),
+        Some(0)
+    );
+
+    let moved = state.page_cursor(1, 1, None).expect("next item");
+    assert_eq!((moved.0, moved.1), (0, 1));
+    assert!(!moved.2, "leaving a committed fill does not clear it");
+    assert_eq!(state.selected_positions(0), [0]);
+    assert_eq!(
+        state.focused_entry().map(|(_, position, _)| position),
+        Some(1)
+    );
+    assert!(
+        state
+            .selected_entries()
+            .iter()
+            .all(|entry| entry.display_name == "alpha")
+    );
+    assert_eq!(
+        state
+            .focused_entry()
+            .map(|(_, _, entry)| entry.display_name),
+        Some("bravo".to_owned())
+    );
+
+    assert_eq!(state.toggle_cursor_fill(), CursorToggle::Added);
+    assert_eq!(state.selected_positions(0), [0, 1]);
+    assert_eq!(
+        state
+            .page_cursor(1, 1, None)
+            .map(|(_, position, _)| position),
+        Some(2)
+    );
+    assert_eq!(state.selected_positions(0), [0, 1]);
+
+    assert_eq!(state.toggle_cursor_fill(), CursorToggle::Added);
+    assert_eq!(state.selected_positions(0), [0, 1, 2]);
+    assert_eq!(
+        state
+            .page_cursor(1, 1, None)
+            .map(|(_, position, _)| position),
+        Some(2),
+        "the last item does not move past the listing"
+    );
+    assert_eq!(state.toggle_cursor_fill(), CursorToggle::Removed);
+    assert_eq!(state.selected_positions(0), [0, 1]);
+    assert_eq!(
+        state.focused_entry().map(|(_, position, _)| position),
+        Some(2)
+    );
+    assert!(
+        state
+            .selected_entries()
+            .iter()
+            .all(|entry| entry.display_name != "charlie")
+    );
+}
+
+#[test]
+fn select_all_and_invert_keep_the_cursor_and_other_columns() {
+    let mut state = NavigationState::default();
+    listing_with_the_first_entry_selected(&mut state);
+    state.descend(0, location("/fixture/alpha"), RequestId(2));
+    state.select_first_on_load(1);
+    state.apply_batch(
+        RequestId(2),
+        vec![
+            named_entry("/fixture/alpha/one", "one"),
+            named_entry("/fixture/alpha/two", "two"),
+        ],
+    );
+    state.focus_column(0);
+    let (focused, positions) = state.select_visible(0).expect("parent entries");
+    assert_eq!(focused, 0);
+    assert_eq!(positions, [0, 1, 2]);
+    assert_eq!(
+        state.selected_positions(1).len(),
+        1,
+        "the child load cursor stays"
+    );
+    assert_eq!(state.active_child_position(0), Some(0));
+
+    assert_eq!(
+        state
+            .page_cursor(1, 2, None)
+            .map(|(_, position, _)| position),
+        Some(2)
+    );
+    assert_eq!(state.selected_positions(0), [0, 1, 2]);
+    assert_eq!(
+        state.focused_entry().map(|(_, position, _)| position),
+        Some(2)
+    );
+
+    let (focused, inverted) = state.invert_visible(0).expect("invert parent");
+    assert_eq!(focused, 2);
+    assert!(inverted.is_empty());
+    assert_eq!(state.selected_positions(1).len(), 1);
+    assert_eq!(
+        state
+            .page_cursor(1, 1, None)
+            .map(|(_, position, _)| position),
+        Some(2)
+    );
+    assert!(state.selected_positions(0).is_empty());
+    assert!(state.focused_entry().is_some());
+
+    state.focus_column(1);
+    let child_before = state.selected_positions(1);
+    let (focused, child_all) = state.select_visible(1).expect("child entries");
+    assert_eq!(focused, 0);
+    assert_eq!(child_all, [0, 1]);
+    assert!(state.selected_positions(0).is_empty());
+    assert_ne!(state.selected_positions(1), child_before);
+    let parent_marker = state.active_child_position(0);
+    assert_eq!(parent_marker, Some(0));
+    assert!(state.selected_positions(0).is_empty());
+}
+
+#[test]
+fn empty_pane_space_does_not_select_the_open_path() {
+    let mut state = NavigationState::default();
+    listing_without_a_load_cursor(&mut state);
+    assert!(state.select(0, 0));
+    state.descend(0, location("/fixture/alpha"), RequestId(2));
+    state.apply_batch(RequestId(2), Vec::new());
+    state.focus_column(1);
+
+    assert_eq!(state.toggle_cursor_fill(), CursorToggle::Empty);
+    assert_eq!(state.selected_positions(1), Vec::<usize>::new());
+    assert_eq!(state.selected_positions(0), [0]);
+    assert_eq!(state.active_child_position(0), Some(0));
+    assert!(state.focused_entry().is_none());
+}
+
+#[test]
+fn invert_skips_hidden_entries_and_treats_a_load_cursor_as_empty() {
+    let mut state = NavigationState::default();
+    state.navigate(location("/fixture"), RequestId(1));
+    state.select_first_on_load(0);
+    state.apply_batch(
+        RequestId(1),
+        vec![
+            named_entry("/fixture/alpha", "alpha"),
+            hidden_entry("/fixture/.secret", ".secret"),
+            named_entry("/fixture/bravo", "bravo"),
+        ],
+    );
+    assert!(state.selection_is_load_cursor());
+    let (focused, positions) = state.invert_visible(0).expect("invert");
+    let name = |position: usize| state.columns[0].entries[position].display_name.clone();
+    assert_eq!(name(focused), "alpha");
+    let mut selected: Vec<_> = positions.iter().copied().map(name).collect();
+    selected.sort();
+    assert_eq!(selected, ["alpha", "bravo"]);
+    assert!(!state.selection_is_load_cursor());
+
+    state.set_show_hidden(true);
+    let (_, positions) = state.invert_visible(0).expect("invert including hidden");
+    let mut selected: Vec<_> = positions
+        .iter()
+        .map(|position| state.columns[0].entries[*position].display_name.clone())
+        .collect();
+    selected.sort();
+    assert_eq!(selected, [".secret"]);
+}

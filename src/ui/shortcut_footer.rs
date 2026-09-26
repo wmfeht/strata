@@ -347,10 +347,14 @@ impl ShortcutFooter {
         rebuild_reference(&self.reference, mode);
     }
 
-    #[cfg(test)]
     pub(in crate::ui) fn show_feedback(&self, text: &str) {
         self.feedback.set_text(text);
         self.feedback.set_visible(!text.is_empty());
+    }
+
+    #[cfg(test)]
+    pub(in crate::ui) fn feedback_text(&self) -> String {
+        self.feedback.text().to_string()
     }
 
     #[cfg(test)]

@@ -959,6 +959,16 @@ impl ViewState {
                 state
                     .browser
                     .set_selection(depth, &source_positions, focused_source);
+                let model = state.browser.selected_positions(depth);
+                if model != source_positions {
+                    let filtered: Vec<u32> = model
+                        .iter()
+                        .filter_map(|position| map_for_selection.view_position(*position))
+                        .collect();
+                    syncing_selection_changed.set(true);
+                    apply_selection_plan(selection, selection.n_items(), &filtered);
+                    syncing_selection_changed.set(false);
+                }
                 state.refresh_destination_style();
             }
         });

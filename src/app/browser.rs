@@ -22,7 +22,7 @@ use crate::{
     },
 };
 
-pub use crate::app::navigation::ColumnEntryCounts;
+pub use crate::app::navigation::{ColumnEntryCounts, CursorToggle};
 
 mod deferred;
 mod directory_changes;
@@ -1553,6 +1553,87 @@ impl Browser {
                 position: Some(position),
             });
         }
+    }
+
+    pub fn toggle_cursor_fill(&self) -> CursorToggle {
+        let outcome = self.state.borrow_mut().toggle_cursor_fill();
+        if outcome != CursorToggle::Empty
+            && let Some((depth, position, _)) = self.focused_item()
+        {
+            self.emit_fill(depth, position);
+        }
+        outcome
+    }
+
+    pub fn select_visible(&self, depth: usize) -> bool {
+        let Some((focused, _)) = self.state.borrow_mut().select_visible(depth) else {
+            return false;
+        };
+        self.emit_fill(depth, focused);
+        true
+    }
+
+    pub fn invert_visible(&self, depth: usize) -> bool {
+        let Some((focused, _)) = self.state.borrow_mut().invert_visible(depth) else {
+            return false;
+        };
+        self.emit_fill(depth, focused);
+        true
+    }
+
+    pub fn install_pane_fill(&self, depth: usize, positions: &[usize], cursor: usize) -> bool {
+        if !self
+            .state
+            .borrow_mut()
+            .install_pane_fill(depth, positions, cursor)
+        {
+            return false;
+        }
+        self.emit_fill(depth, cursor);
+        true
+    }
+
+    pub fn place_cursor(&self, depth: usize, position: usize) {
+        let Some(cleared) = self.state.borrow_mut().place_cursor(depth, position) else {
+            return;
+        };
+        if cleared {
+            let focused = self
+                .focused_item()
+                .filter(|(item_depth, _, _)| *item_depth == depth)
+                .map(|(_, cursor, _)| cursor)
+                .unwrap_or(position);
+            self.emit_fill(depth, focused);
+        } else {
+            self.emit(BrowserEvent::FocusChanged {
+                depth,
+                position: Some(position),
+            });
+        }
+    }
+
+    pub fn page_cursor(&self, direction: i32, page: usize, order: Option<&[usize]>) {
+        let moved = self.state.borrow_mut().page_cursor(direction, page, order);
+        if let Some((depth, position, cleared)) = moved {
+            if cleared {
+                self.emit_fill(depth, position);
+            } else {
+                self.emit(BrowserEvent::FocusChanged {
+                    depth,
+                    position: Some(position),
+                });
+            }
+        }
+    }
+
+    fn emit_fill(&self, depth: usize, focused: usize) {
+        let positions = self.selected_positions(depth);
+        self.emit(BrowserEvent::SelectionSetChanged {
+            depth,
+            positions,
+            focused,
+            take_focus: true,
+        });
     }
 
     pub fn entry_at(&self, depth: usize, position: usize) -> Option<FileEntry> {

@@ -254,6 +254,56 @@ fn escape_clears_only_the_active_selection_and_preserves_the_cursor() {
 }
 
 #[test]
+fn cursor_fill_stays_out_of_the_other_column_and_the_open_path() {
+    let mut source = ScriptedSource::scripted(vec!["a.txt", "b.txt"], Vec::new());
+    source.dirs = vec!["empty", "child"];
+    let browser = Rc::new(Browser::new(Rc::new(source)));
+    browser.navigate(Location::local("/fixture"));
+    assert!(browser.selection_is_load_cursor());
+    assert_eq!(browser.toggle_cursor_fill(), CursorToggle::Added);
+    assert!(!browser.selection_is_load_cursor());
+    let added = browser.focused_entry().expect("cursor").display_name;
+    browser.page_cursor(1, 1, None);
+    assert_eq!(
+        browser
+            .selected_entries()
+            .into_iter()
+            .map(|entry| entry.display_name)
+            .collect::<Vec<_>>(),
+        vec![added.clone()]
+    );
+    assert_ne!(
+        browser.focused_entry().expect("moved cursor").display_name,
+        added
+    );
+
+    browser.select_visible(0);
+    let all = browser.selected_positions(0);
+    assert!(all.len() > 1);
+    let cursor = browser.focused_item().map(|(_, position, _)| position);
+    browser.page_cursor(1, 1, None);
+    assert_eq!(browser.selected_positions(0), all);
+    assert_ne!(
+        browser.focused_item().map(|(_, position, _)| position),
+        cursor
+    );
+
+    browser.invert_visible(0);
+    let inverted = browser.selected_positions(0);
+    assert_ne!(inverted, all);
+    browser.page_cursor(1, 1, None);
+    assert_eq!(browser.selected_positions(0), inverted);
+
+    let parent = browser.selected_positions(0);
+    browser.show_child(0, Location::local("/fixture/child"));
+    assert!(browser.column_snapshot(1).is_some());
+    browser.select_visible(1);
+    assert_eq!(browser.selected_positions(0), parent);
+    browser.invert_visible(1);
+    assert_eq!(browser.selected_positions(0), parent);
+}
+
+#[test]
 fn select_all_excludes_hidden_entries_unless_shown() {
     let source = ScriptedSource::scripted(vec!["visible.txt", ".hidden.txt"], Vec::new());
     let browser = Browser::new(Rc::new(source));
