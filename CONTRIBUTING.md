@@ -11,11 +11,13 @@ Install [mise](https://mise.jdx.dev), then install the pinned toolchain (Rust
 mise install
 ```
 
-GTK 4, Fontconfig, a C toolchain, and `pkg-config` still come from the system
-package manager. On Arch Linux:
+GTK 4, Fontconfig, GStreamer 1.20+ (including app/base development libraries), a
+C toolchain, and `pkg-config` still come from the system package manager. On
+Arch Linux:
 
 ```bash
-sudo pacman -S --needed base-devel fontconfig gtk4 gtksourceview5 poppler-glib
+sudo pacman -S --needed base-devel fontconfig gtk4 gtksourceview5 poppler-glib \
+  gstreamer gst-plugins-base
 ```
 
 Run the application:
@@ -26,7 +28,7 @@ mise run dev
 
 To rebuild and restart the running application whenever code or bundled assets
 change, use the development watcher. On Arch, Debian/Ubuntu, and Fedora, it
-installs missing native GTK libraries (prompting for `sudo`) when needed:
+installs missing native GTK and GStreamer libraries (prompting for `sudo`) when needed:
 
 ```bash
 mise run start-dev
