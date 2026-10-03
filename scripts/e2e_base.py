@@ -65,7 +65,22 @@ def ensure_base(engine, repository=REPOSITORY):
     return identity
 
 
+def require_docker_buildkit(engine):
+    if os.path.basename(engine) != "docker":
+        return
+    result = subprocess.run([engine, "buildx", "version"], capture_output=True, text=True, check=False)
+    if result.returncode == 0:
+        return
+    raise ValueError(
+        "Docker BuildKit is required to build tests/e2e/Dockerfile (RUN --mount and "
+        "repository-root COPY paths). Install the docker-buildx plugin. Do not pass "
+        "tests/e2e as the build context; COPY tests/e2e/install-packages.sh needs the "
+        "checkout root."
+    )
+
+
 def build_base(engine, repository=REPOSITORY):
+    require_docker_buildkit(engine)
     inputs = image_key(repository)
     local = f"strata-e2e:base-{inputs}-{os.getuid()}-{os.getgid()}"
     subprocess.run([engine, "build", "--platform=linux/amd64", "--target", "toolchain",
