@@ -18,10 +18,10 @@ Observed on this snapshot (Ubuntu 24.04.4 LTS, user `ubuntu`, uid/gid
 | --- | --- |
 | CPUs / RAM | 4 logical CPUs, 15 GiB RAM, no swap |
 | Rust | 1.98.1 at `/usr/local/cargo` (`CARGO_HOME=/usr/local/cargo`, `RUSTUP_HOME=/usr/local/rustup`) |
-| Components | `rustfmt`, `clippy` installed; `cargo-deny` and `typos` are not |
+| Components | `rustfmt`, `clippy` installed; `cargo-deny` and `typos` come from `install` (`cargo install`) |
 | GTK | GTK 4.14.5, GtkSourceView 5.12.0, Poppler 24.02.0 |
 | Headless X | `xvfb-run`, `Xvfb`, `at-spi2-core`, `python3-gi`, `gir1.2-atspi-2.0`, `dbus-daemon`, ImageMagick `import`, Cantarell fonts |
-| E2E venv | `/opt/e2e-venv` (pytest 9.1.1); the start script links it to `/workspace/target/e2e-venv` |
+| E2E venv | `/workspace/target/e2e-venv` (pytest 9.1.1), created by `install`. There is no `/opt/e2e-venv`. |
 | Docker | 29.1.3 (`docker.io`), no Podman |
 | Docker daemon | `fuse-overlayfs`, `iptables: false`, `ip6tables: false`, `bridge: none` |
 
@@ -37,20 +37,16 @@ git checkout -B <branch> origin/main
 ## Confirm the start script ran
 
 The personal environment `start` script (`/tmp/cursor/start-user/start-user.sh`)
-must have exited 0. It:
-
-1. Creates `/workspace/target` and links `/workspace/target/e2e-venv` → `/opt/e2e-venv`.
-2. Starts `dockerd` if `docker info` fails, using `/etc/docker/daemon.json`.
-3. Runs `sudo chmod 666 /var/run/docker.sock`.
-
-If Docker is down later in the session, restart it the same way. Do not
-enable the default bridge or iptables; this nested VM does not provide
-them.
+must have exited 0. Snapshot restore leaves `/var/run/docker.pid` (and
+containerd pid files) whose PIDs belong to unrelated processes or to
+nothing. `start` must delete those pid files unless the live process
+`comm` is exactly `dockerd` or `containerd`, then start `dockerd` if
+`docker info` fails. Do not enable the default bridge; `iptables: true`
+in a missing `daemon.json` is only a last-resort write.
 
 ```bash
 sudo docker info >/dev/null
-ls -l /workspace/target/e2e-venv
-test -x /opt/e2e-venv/bin/python
+test -x /workspace/target/e2e-venv/bin/python
 ```
 
 `./scripts/check.sh` is useful for format and Clippy, but it unsets
@@ -82,8 +78,18 @@ pass; GitHub Actions still runs those jobs.
 
 ## End-to-end container suite
 
-`./scripts/e2e.sh` is the pre-push gate. It builds
-`tests/e2e/Dockerfile` and runs the suite inside that image.
+`./scripts/e2e.sh` is the pre-push gate. It reuses a verified base
+(`python3 scripts/e2e_base.py ensure` pulls the published image) and
+runs the suite inside that container. Do not bake
+`tests/e2e/Dockerfile` during Cloud Agent `install`.
+
+The recipe at `tests/e2e/Dockerfile` is repository-root context and
+BuildKit-only (`COPY tests/e2e/install-packages.sh` and `RUN --mount`).
+`docker build -f tests/e2e/Dockerfile tests/e2e` fails with
+`file not found in build context` for `install-packages.sh`. This VM
+has no `docker-buildx` plugin, so the legacy builder also cannot apply
+`--mount`. Explicit local rebuilds are
+`python3 scripts/e2e_base.py build` and require BuildKit.
 
 This VM's Docker daemon has **no default `bridge` network**. A stock
 `docker build` cannot resolve apt hosts and fails with `Temporary
@@ -121,12 +127,13 @@ as the CI runner. Override only when debugging:
 STRATA_E2E_WORKERS=1 PATH="/tmp/docker-hostnet:$PATH" ./scripts/e2e.sh -n 0
 ```
 
-First image build installs GTK, Xvfb, and Rust 1.98.1 from the pinned
-Ubuntu snapshot and takes several minutes. Later runs reuse
+The first `ensure` pull can take a minute; later runs reuse
 `target/e2e-container`. Failure artifacts land in `target/e2e-artifacts`.
+Do not recover a missing published base by `docker build` with context
+`tests/e2e`.
 
-Native debugging (`./scripts/e2e-native.sh`) can use the preinstalled
-`/opt/e2e-venv` and host GTK 4.14.5. It does not replace
+Native debugging (`./scripts/e2e-native.sh`) can use
+`/workspace/target/e2e-venv` and host GTK 4.14.5. It does not replace
 `./scripts/e2e.sh`.
 
 ## What not to do
@@ -139,6 +146,8 @@ Native debugging (`./scripts/e2e-native.sh`) can use the preinstalled
 - Do not change `/etc/docker/daemon.json` to enable `bridge` or
   `iptables` unless you are prepared to recover `dockerd`. The host
   network wrapper is the supported workaround.
+- Do not `docker build -f tests/e2e/Dockerfile tests/e2e`. COPY paths
+  are relative to the checkout root, and the recipe needs BuildKit.
 - Do not push until format, Clippy, the isolated Rust suite, and
   `./scripts/e2e.sh` have all passed.
 
