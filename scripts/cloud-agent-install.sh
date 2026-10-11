@@ -12,16 +12,18 @@ fi
 
 export PATH="/usr/local/cargo/bin:${PATH}"
 export DEBIAN_FRONTEND=noninteractive
+# This image points /usr/bin/c++ at clang, which passes -stdlib=libc++.
+# libc++-dev conflicts with libunwind-dev, and libgstreamer1.0-dev needs the latter.
+export CC=gcc
+export CXX=g++
 
 # Keep in lockstep with mise.toml and tests/e2e/Dockerfile (RUSTUP_TOOLCHAIN).
 RUST_VERSION=1.98.1
 
 compile_packages=(
   build-essential
-  # /usr/bin/c++ is clang on this image. unrar_sys compiles with that driver
-  # and passes -stdlib=libc++, which needs the libc++ headers.
-  libc++-dev
   pkg-config
+  libunwind-dev
   libfontconfig1-dev
   libgtk-4-dev
   libgtksourceview-5-dev
@@ -66,6 +68,10 @@ pkgconfig_probes=(
   'gstreamer-app-1.0 >= 1.20'
   'gstreamer-base-1.0 >= 1.20'
 )
+
+if dpkg -s libc++-dev >/dev/null 2>&1; then
+  sudo -n apt-get remove -y libc++-dev libc++-18-dev libc++abi-18-dev libunwind-18-dev libunwind-18
+fi
 
 sudo -n apt-get update
 sudo -n apt-get install -y --no-install-recommends \
