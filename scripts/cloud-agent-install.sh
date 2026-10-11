@@ -80,6 +80,13 @@ sudo -n apt-get install -y --no-install-recommends \
   "${compile_packages[@]}" \
   "${agent_packages[@]}"
 
+# The image pins c++ to clang in manual mode. cc-rs then passes -stdlib=libc++,
+# and the libc++ packages conflict with libunwind-dev. g++ is already the
+# higher-priority alternative; put the link back on automatic selection.
+if update-alternatives --query c++ >/dev/null 2>&1; then
+  sudo -n update-alternatives --auto c++
+fi
+
 missing=0
 for probe in "${pkgconfig_probes[@]}"; do
   if ! pkg-config --exists "$probe"; then
