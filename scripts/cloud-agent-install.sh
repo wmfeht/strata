@@ -4,8 +4,10 @@
 # recurring build and left install failing on the next system library Cargo started probing.
 set -euo pipefail
 
-if [[ ${BASH_SOURCE[0]} == */cloud-agent-install.sh ]]; then
-  cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# bash -s leaves BASH_SOURCE unset; the Cloud Agent install command uses that path.
+script_path=${BASH_SOURCE[0]:-}
+if [[ $script_path == */cloud-agent-install.sh ]]; then
+  cd "$(cd "$(dirname "$script_path")/.." && pwd)"
 else
   cd /workspace
 fi
