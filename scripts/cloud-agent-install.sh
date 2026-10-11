@@ -18,6 +18,9 @@ RUST_VERSION=1.98.1
 
 compile_packages=(
   build-essential
+  # /usr/bin/c++ is clang on this image. unrar_sys compiles with that driver
+  # and passes -stdlib=libc++, which needs the libc++ headers.
+  libc++-dev
   pkg-config
   libfontconfig1-dev
   libgtk-4-dev
