@@ -122,7 +122,7 @@ fn commands_parse_from_the_scenario_spelling_with_their_defaults() {
     let Ok(Command::Expect { message, .. }) =
         parse_command(r#"{"expect":{"focused":null},"message":"focus to leave the list"}"#)
     else {
-        panic!("expect should take the twin's assertion message");
+        panic!("expect should take an assertion message");
     };
     assert_eq!(message.as_deref(), Some("focus to leave the list"));
 }

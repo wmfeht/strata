@@ -1,0 +1,30 @@
+{"scenario":"rendered-document-word-selection","modes":["columns"],"prefs":{"single_click_previews":false},"layout":"us","mutation":null,"known_bug":null,"tree":{"notes.txt":"the quick brown fox\n","page.md":"# Heading\n\nBody text.\n","third.txt":"third preview fixture\n","data.csv":"name,value\nalpha,1\n","folder":{"inner.txt":"inner\n","nested-notes.txt":"nested preview fixture\n"}},"variants":[{"id":"md","vars":{"case":"fixture_tree0-selection.md-alpha","filename":"selection.md","word":"alpha"},"tree":{"selection.md":"alpha bravo charlie delta\n\nsecond paragraph\n"}},{"id":"docx","vars":{"case":"fixture_tree1-selection.docx-Quarterly","filename":"selection.docx","word":"Quarterly"},"tree":{"selection.docx":""},"setup":[{"fs":{"path":"selection.docx","from_repository":"tests/fixtures/documents/report.docx"}}]}],"cost":{"columns-md":1.8,"columns-docx":1.9},"quality":{"impact":3,"coverage":4,"criticality":4,"diagnostic":3,"score":45,"note":"Rendered md/docx double-click word and shift-click range copy; sole GUI guard, source text is preview-source-text-copies"}}
+{"select_with_keyboard":"$filename"}
+{"key":"space"}
+{"wait":{"preview":"$word"},"message":"rendered document text"}
+{"key":"ctrl+l"}
+{"key":"ctrl+a"}
+{"type":"selection-cleared"}
+{"key":"ctrl+a"}
+{"key":"ctrl+c"}
+{"key":"Escape"}
+{"wait":{"present":{"role":"list item","within":{"preview":true}}},"message":"first prose row"}
+{"remember":{"role":"panel","within":{"role":"list item","within":{"preview":true}},"nth":-1},"as":"text"}
+{"click":{"remembered":"text"},"at":[17,"50%"],"count":2}
+{"key":"ctrl+c"}
+{"clipboard":"$word"}
+{"click":{"remembered":"text"},"at":[17,"50%"]}
+{"click":{"remembered":"text"},"at":["3/4","50%"],"mods":["shift"]}
+{"key":"ctrl+c"}
+{"clipboard":{"starts_with":"alpha","longer_than":5},"variants":["md"]}
+{"clipboard":{"starts_with":"Quarterly","longer_than":9},"variants":["docx"]}
+{"key":"ctrl+Home"}
+{"key":"shift+Right","repeat":5}
+{"key":"ctrl+c"}
+{"clipboard":"alpha","variants":["md"]}
+{"clipboard":"Quart","variants":["docx"]}
+{"key":"shift+Left","repeat":2}
+{"key":"ctrl+c"}
+{"clipboard":"alp","variants":["md"]}
+{"clipboard":"Qua","variants":["docx"]}
+{"expect":{"selected":["$filename"]}}

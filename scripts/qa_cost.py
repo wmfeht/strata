@@ -12,8 +12,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-from qa_parity import run_labels
-
 REPOSITORY = Path(__file__).resolve().parents[1]
 SCENARIOS = REPOSITORY / "tests/qa/scenarios"
 OUTPUT = REPOSITORY / "target/qa-cost"
@@ -22,6 +20,19 @@ RESULT = re.compile(
     r"^test (?P<run>[^\s/]+/\S+) \.\.\. (?P<status>ok|FAILED) <(?P<seconds>\d+(?:\.\d+)?)s>$"
 )
 SPACE = re.compile(r"\s*")
+
+
+def run_labels(header: dict) -> list[str]:
+    """The run labels `tests/qa.rs` gives a scenario's runs: the mode, plus `-<variant>`."""
+
+    variants = header.get("variants") or []
+    if not variants:
+        return list(header.get("modes", []))
+    return [
+        f"{mode}-{variant['id']}"
+        for variant in variants
+        for mode in (variant.get("modes") or header.get("modes", []))
+    ]
 
 
 def durations(log: str) -> dict[str, tuple[float, bool]]:

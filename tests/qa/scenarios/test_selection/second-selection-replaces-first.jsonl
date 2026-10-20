@@ -1,4 +1,0 @@
-{"scenario":"second-selection-replaces-first","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_selection.py::test_selecting_a_second_entry_replaces_the_first[$mode]","mutation":null,"known_bug":null,"cost":{"columns":0.5,"icons":0.5,"list":0.5},"quality":{"impact":3,"coverage":2,"criticality":3,"diagnostic":4,"score":14,"note":"Plain click replaces an existing single selection in all modes; modifier, shift and right-click selection scenarios cover other routes"}}
-{"select":{"entry":"readme.md","dir":"$root"}}
-{"select":{"entry":"todo.txt","dir":"$root"}}
-{"wait":{"selected":["todo.txt"],"dir":"$root"},"message":"a plain click to replace the selection"}

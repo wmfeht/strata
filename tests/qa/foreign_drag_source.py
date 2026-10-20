@@ -2,8 +2,7 @@
 """Runs a foreign drag source and prints its button for the QA runner.
 
 Stdout gets `bounds X Y WIDTH HEIGHT` whenever the button's screen box changes
-and `label TEXT` after each label change, as the Python harness reads them
-through AT-SPI.
+and `label TEXT` after each label change.
 """
 
 import ctypes

@@ -333,11 +333,11 @@ recursive action retirement, tracking admission and window remapping.
 `./scripts/test-headless.py integration_catalog` covers catalog parsing and bounds,
 installation records, update and edit detection, and that every bundled entry
 parses and is translated; `./scripts/test-headless.py integrations` covers the
-Settings page. `./scripts/e2e.sh tests/e2e/scenarios/test_file_providers.py`
-exercises live menu refresh and withdrawal, sustained events, overlapping
-providers, mixed selections and flat/nested leaf activation through the actual
-GUI, and `tests/e2e/scenarios/test_integrations.py` installs, updates and
-removes a fixture catalog entry from Settings.
-The normal pinned quality and E2E checks remain required for this cross-cutting
+Settings page. The QA scenarios in `tests/qa/scenarios/file_providers/`
+(`./scripts/qa.sh provider-updates-open-menu`, for one) exercise live menu
+refresh and withdrawal, sustained events, overlapping providers, mixed
+selections and flat/nested leaf activation through the actual GUI. Installing,
+updating and removing a catalog entry from Settings has no GUI scenario.
+The normal pinned quality and QA checks remain required for this cross-cutting
 change. Use private display/configuration environments; do not test by changing
 the default file manager or loading fixtures into a user's installed application.

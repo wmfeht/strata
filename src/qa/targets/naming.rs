@@ -36,13 +36,13 @@ pub(crate) fn accessible_description(widget: &gtk::Widget) -> String {
         .unwrap_or_default()
 }
 
-/// AT-SPI role names as the Python harness's `tree.Node.role` spells them.
+/// AT-SPI role names, lowercase with spaces, as AT-SPI spells them.
 pub(crate) fn role_name(widget: &gtk::Widget) -> &'static str {
     use gtk::AccessibleRole as Role;
     if widget.is::<gtk::ScrolledWindow>() {
         return "scroll pane";
     }
-    // GTK's AT-SPI bridge reports a scale as a slider, as `Node.role` reads it.
+    // GTK's AT-SPI bridge reports a scale as a slider.
     if widget.is::<gtk::Scale>() {
         return "slider";
     }

@@ -64,6 +64,9 @@ recoverability and visibility. A silent failure is worse than an obvious one.
 | 2 | A visible annoyance on a working path: lost scroll position, wrong preview size, rendering or state glitch the user can recover from at once. | Rename loses the scroll position (`visible-rename-preserves-scroll`); small images upscaled (`small-image-preview-native-size`); hover tile renders wrong (`icons-hover-baseline`); filter text selection ignores the theme (`filter-selection-uses-theme`). |
 | 1 | Cosmetic only: alignment, spacing, centring, a colour shade, tooltip wording. Nothing stops working. | A column title off-centre by a few pixels (the centring assertions in `column-header-titles-bounded`); tooltip wording. |
 
+Some examples here were removed from the suite for their low score per unit
+of cost; they remain as scoring examples.
+
 Accessible names, roles and states are product surface: a missing name makes
 a control unusable for screen-reader users, so score it 3 or higher, never as
 cosmetic.

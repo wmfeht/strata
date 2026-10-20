@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
-//! Mirrors of the Python twins' helpers: `harness/portal.py`, `image_server`,
-//! `tests/e2e/fixtures/file_drag_source.py`, and `_write_zipcrypto`.
+//! Peers a scenario runs beside the application: the file-chooser portal client, an
+//! image server, `tests/qa/fixtures/file_drag_source.py`, and a ZipCrypto writer.
 
 use std::{
     io::{BufRead, BufReader, Read, Write},
@@ -312,7 +312,7 @@ impl ForeignSource {
         std::os::unix::process::CommandExt::process_group(&mut command, 0);
         command
             .arg(repository.join("tests/qa/foreign_drag_source.py"))
-            .arg(repository.join("tests/e2e/fixtures/file_drag_source.py"))
+            .arg(repository.join("tests/qa/fixtures/file_drag_source.py"))
             .args(arguments)
             .env_clear()
             .envs(environment.iter().map(|(key, value)| (key, value)))

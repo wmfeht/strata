@@ -89,7 +89,7 @@ pub(crate) fn variables(run: &Run, places: &Places) -> Vec<(String, String)> {
         "cache".to_owned(),
         places.xdg("XDG_CACHE_HOME").display().to_string(),
     ));
-    variables.push(("python".to_owned(), python()));
+    variables.push(("python".to_owned(), PYTHON.to_owned()));
     variables.push((
         "fixture_quoted".to_owned(),
         quote_path(places.fixture.as_os_str().as_encoded_bytes()),
@@ -107,12 +107,8 @@ pub(crate) fn variables(run: &Run, places: &Places) -> Vec<(String, String)> {
     variables
 }
 
-pub(crate) fn python() -> String {
-    std::env::var("STRATA_E2E_VENV").map_or_else(
-        |_| "python3".to_owned(),
-        |venv| format!("{}/bin/python", venv.trim_end_matches('/')),
-    )
-}
+/// Absolute, as a file provider's manifest command must be.
+pub(crate) const PYTHON: &str = "/usr/bin/python3";
 
 pub(crate) fn quote_path(bytes: &[u8]) -> String {
     let mut quoted = String::with_capacity(bytes.len());
@@ -126,16 +122,8 @@ pub(crate) fn quote_path(bytes: &[u8]) -> String {
     quoted
 }
 
-pub(crate) fn twin(header: &Header, run: &Run) -> Option<String> {
-    let pattern = run.variant.twin.as_deref().or(header.twin.as_deref())?;
-    Some(substitute_text(pattern, &variables(run, &placeholders())))
-}
-
-pub(crate) fn run_name(scenario: &str, header: &Header, run: &Run) -> String {
-    match twin(header, run) {
-        Some(node) => format!("{scenario}/{} (twin {node})", run.label),
-        None => format!("{scenario}/{}", run.label),
-    }
+pub(crate) fn run_name(scenario: &str, run: &Run) -> String {
+    format!("{scenario}/{}", run.label)
 }
 
 pub(crate) fn substitute(value: &Value, variables: &[(String, String)]) -> Value {

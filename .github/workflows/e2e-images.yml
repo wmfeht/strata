@@ -7,10 +7,7 @@ on:
     paths:
       - Cargo.toml
       - Cargo.lock
-      - tests/e2e/Dockerfile
-      - tests/e2e/requirements.txt
-      - tests/e2e/install-packages.sh
-      - tests/e2e/gtk/**
+      - tests/container/**
       - scripts/e2e_bundle.py
       - scripts/e2e_images.py
       - .dockerignore
@@ -88,7 +85,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          file: tests/e2e/Dockerfile
+          file: tests/container/Dockerfile
           target: dependencies
           platforms: linux/amd64
           build-args: |
@@ -116,7 +113,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          file: tests/e2e/Dockerfile
+          file: tests/container/Dockerfile
           target: runtime
           platforms: linux/amd64
           build-args: |

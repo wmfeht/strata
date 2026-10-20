@@ -434,7 +434,7 @@ pub(crate) fn check_step(step: &Value) -> Result<(), String> {
             Ok(())
         } else {
             Err(
-                "baseline names a committed image in tests/e2e/baselines without its .png, and takes only a message"
+                "baseline names a committed image in tests/qa/baselines without its .png, and takes only a message"
                     .to_owned(),
             )
         };
@@ -600,7 +600,7 @@ pub(crate) fn check_step(step: &Value) -> Result<(), String> {
         {
             Ok(())
         } else {
-            Err("fail takes the twin's assertion message and nothing else".to_owned())
+            Err("fail takes an assertion message and nothing else".to_owned())
         };
     }
     if let Some(arguments) = step.get("dbus_send") {

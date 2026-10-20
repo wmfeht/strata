@@ -1,0 +1,15 @@
+{"scenario":"cross-volume-enter-choice","modes":["columns"],"prefs":{"cross_volume_drop_strategy":"always-ask"},"layout":"us","mutation":null,"known_bug":null,"variants":[{"id":"copy","vars":{"action":"Copy","tabs":"0"}},{"id":"move","vars":{"action":"Move","tabs":"1"}},{"id":"cancel","vars":{"action":"Cancel","tabs":"2"}}],"cost":{"columns-copy":0.9,"columns-move":0.9,"columns-cancel":1.0},"quality":{"impact":4,"coverage":3,"criticality":4,"diagnostic":4,"score":38,"note":"Enter on focused Copy/Move/Cancel in cross-volume drop dialog; only keyboard route through this dialog, unit tests stop at prompt logic"}}
+{"fs":{"path":"drop-volume","volume":"/dev/shm"}}
+{"drag":{"from":{"entry":"todo.txt"},"to":{"entry":"drop-volume"}}}
+{"wait":{"dialog":true},"message":"a dialog to appear"}
+{"key":"shift+Tab","variants":["move"]}
+{"key":"shift+Tab","repeat":2,"variants":["cancel"]}
+{"wait":{"state":{"target":{"dialog_button":"$action"},"focused":true}},"message":"$action focused"}
+{"key":"Return"}
+{"wait":{"dialog":null},"message":"the copy-or-move dialog to close"}
+{"fs":{"path":"drop-volume/todo.txt","exists":false},"timeout_ms":0,"message":"Cancel must not start a transfer","variants":["cancel"]}
+{"fs":{"path":"todo.txt","exists":true},"timeout_ms":0,"variants":["cancel"]}
+{"fs":{"path":"drop-volume/todo.txt","exists":true},"message":"the destination to be created","variants":["copy","move"]}
+{"fs":{"path":"todo.txt","exists":false},"message":"the source to move","variants":["move"]}
+{"fs":{"path":"todo.txt","exists":true},"timeout_ms":0,"message":"Copy must preserve the source","variants":["copy"]}
+{"fs":{"path":"drop-volume/todo.txt","text":"todo\n"},"timeout_ms":0,"variants":["copy","move"]}

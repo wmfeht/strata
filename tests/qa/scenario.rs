@@ -10,15 +10,14 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 
 use crate::{
-    DEFAULT_LAYOUT, IGNORABLE_STATE, QA_ENVIRONMENT, REPOSITORY, RUNNER_COMMANDS,
-    RUNNER_OWNED_ENVIRONMENT, STEP_IF, STEP_MODES, STEP_UNLESS, STEP_VARIANTS, STEP_WHEN,
-    XDG_DIRECTORIES,
+    DEFAULT_LAYOUT, QA_ENVIRONMENT, REPOSITORY, RUNNER_COMMANDS, RUNNER_OWNED_ENVIRONMENT, STEP_IF,
+    STEP_MODES, STEP_UNLESS, STEP_VARIANTS, STEP_WHEN, XDG_DIRECTORIES,
     fixture::{expand_tree, fixed_fixture_name, gtk_settings, manifest},
     fs_check::FsStep,
     harness, protocol,
     run::run_scenario,
     unit_tests::UNIT_TESTS,
-    variables::{run_name, runs, twin},
+    variables::{run_name, runs},
 };
 
 const KEEPING_STEPS: [&str; 11] = [
@@ -47,7 +46,6 @@ pub(crate) struct Header {
     pub(crate) prefs: Map<String, Value>,
     #[serde(default = "default_layout")]
     pub(crate) layout: String,
-    pub(crate) twin: Option<String>,
     pub(crate) mutation: Option<String>,
     pub(crate) known_bug: Option<String>,
     pub(crate) known_bug_step: Option<usize>,
@@ -58,10 +56,6 @@ pub(crate) struct Header {
     pub(crate) images: BTreeMap<String, Image>,
     #[serde(default)]
     pub(crate) gtk_settings: BTreeMap<String, String>,
-    #[serde(default)]
-    state_parity_ignore: Vec<String>,
-    #[serde(default)]
-    input_parity_ignore: Vec<InputParityIgnore>,
     #[serde(default)]
     pub(crate) setup: Vec<Value>,
     #[serde(default)]
@@ -87,20 +81,6 @@ pub(crate) struct Quality {
     pub(crate) diagnostic: u8,
     pub(crate) score: u8,
     pub(crate) note: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct InputParityIgnore {
-    run: String,
-    events: Vec<IgnoredEvent>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct IgnoredEvent {
-    position: usize,
-    event: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -135,7 +115,6 @@ pub(crate) struct Variant {
     pub(crate) layout: Option<String>,
     #[serde(default)]
     pub(crate) vars: BTreeMap<String, String>,
-    pub(crate) twin: Option<String>,
     pub(crate) tree: Option<Value>,
     #[serde(default)]
     pub(crate) setup: Vec<Value>,
@@ -254,7 +233,7 @@ pub(crate) fn planned_tests() -> Vec<harness::Test> {
                     .and_then(|cost| cost.get(&label))
                     .copied(),
                 exclusive: header.fixture_root.is_some(),
-                plan: Some(format!("RUN {}", run_name(&scenario, &header, &run))),
+                plan: Some(format!("RUN {}", run_name(&scenario, &run))),
                 run: Box::new(move || run_scenario(&path, &label)),
             });
         }
@@ -287,19 +266,6 @@ pub(crate) fn load_scenario(path: &Path) -> Result<Scenario, String> {
             "a scenario name is lowercase words joined by hyphens, not {:?}",
             header.scenario
         ));
-    }
-    if header.twin.is_none() && header.variants.iter().any(|variant| variant.twin.is_some()) {
-        return Err("a variant's twin needs the header's twin".to_owned());
-    }
-    if header.twin.is_none()
-        && (header.mutation.is_some()
-            || !header.state_parity_ignore.is_empty()
-            || !header.input_parity_ignore.is_empty())
-    {
-        return Err(
-            "mutation, state_parity_ignore, and input_parity_ignore need the header's twin"
-                .to_owned(),
-        );
     }
     if let Some(quality) = &header.quality {
         check_quality(quality)?;
@@ -351,49 +317,6 @@ pub(crate) fn load_scenario(path: &Path) -> Result<Scenario, String> {
         }
     }
     gtk_settings(&manifest().gtk_settings, &header.gtk_settings)?;
-    // `["*"]` ignores the whole state; `scripts/qa_parity_scenarios.py` agrees.
-    let whole_state = header.state_parity_ignore == ["*"];
-    if whole_state && header.mutation.is_some() {
-        return Err(
-            "state_parity_ignore is for baseline parity; a scenario with a mutation keeps every check"
-                .to_owned(),
-        );
-    }
-    for (index, key) in header
-        .state_parity_ignore
-        .iter()
-        .enumerate()
-        .filter(|_| !whole_state)
-    {
-        if !IGNORABLE_STATE.contains(&key.as_str())
-            || header.state_parity_ignore[..index].contains(key)
-        {
-            return Err(format!(
-                "state_parity_ignore takes distinct keys of {IGNORABLE_STATE:?}, not {key:?}"
-            ));
-        }
-    }
-    if !header.state_parity_ignore.is_empty() && !whole_state {
-        if header.mutation.is_some() {
-            return Err(
-                "state_parity_ignore is for baseline parity; a scenario with a mutation keeps every check"
-                    .to_owned(),
-            );
-        }
-        if IGNORABLE_STATE
-            .iter()
-            .filter(|key| !key.contains('.'))
-            .all(|key| {
-                header
-                    .state_parity_ignore
-                    .iter()
-                    .any(|ignored| ignored == key)
-            })
-        {
-            return Err("state_parity_ignore must leave a compared key".to_owned());
-        }
-    }
-    check_input_parity_ignore(&header)?;
     check_cost(&header)?;
     if let Some(reason) = &header.skip
         && (reason.trim().is_empty() || header.mutation.is_some() || header.known_bug.is_some())
@@ -548,25 +471,10 @@ fn is_name(name: &str, separator: char) -> bool {
         })
 }
 
-pub(crate) fn check_folder(folder: &str, header: &Header) -> Result<(), String> {
-    if header.twin.is_some() {
-        for run in runs(header) {
-            let node = twin(header, &run).unwrap_or_default();
-            let file = node
-                .split_once("::")
-                .map_or(node.as_str(), |(file, _)| file);
-            if Path::new(file).file_stem().and_then(|stem| stem.to_str()) != Some(folder) {
-                return Err(format!(
-                    "{}: the scenario belongs in the folder named after {file}",
-                    run.label
-                ));
-            }
-        }
-        return Ok(());
-    }
+pub(crate) fn check_folder(folder: &str) -> Result<(), String> {
     if !is_name(folder, '_') || folder.starts_with("test_") {
         return Err(format!(
-            "a scenario without a twin lives in a feature-area folder named in snake_case \
+            "a scenario lives in a feature-area folder named in snake_case \
              without a test_ prefix, not {folder:?}"
         ));
     }
@@ -616,56 +524,6 @@ fn quality_score(quality: &Quality) -> u8 {
         + 2 * rating(quality.diagnostic);
     u8::try_from((50 * rating(quality.coverage) * points + 32) / 64)
         .expect("ratings from 1 to 5 score at most 100")
-}
-
-fn check_input_parity_ignore(header: &Header) -> Result<(), String> {
-    if header.input_parity_ignore.is_empty() {
-        return Ok(());
-    }
-    if header.mutation.is_some() {
-        return Err(
-            "input_parity_ignore is for baseline parity; a scenario with a mutation keeps every check"
-                .to_owned(),
-        );
-    }
-    let labels: Vec<String> = runs(header).into_iter().map(|run| run.label).collect();
-    for (index, entry) in header.input_parity_ignore.iter().enumerate() {
-        if !labels.contains(&entry.run)
-            || header.input_parity_ignore[..index]
-                .iter()
-                .any(|earlier| earlier.run == entry.run)
-        {
-            return Err(format!(
-                "input_parity_ignore names distinct runs of {labels:?}, not {:?}",
-                entry.run
-            ));
-        }
-        let mut seen = Vec::new();
-        for ignored in &entry.events {
-            let named = matches!(
-                ignored.event.as_str(),
-                "key down" | "key up" | "typed digits"
-            ) || ignored
-                .event
-                .strip_prefix("button ")
-                .and_then(|rest| rest.split_once(' '))
-                .is_some_and(|(button, direction)| {
-                    button.parse::<u8>().is_ok() && matches!(direction, "down" | "up")
-                });
-            if ignored.position == 0 || seen.contains(&ignored.position) || !named {
-                return Err(
-                    "an input_parity_ignore event is {\"position\": N, \"event\": \"button 1 down\"} \
-                     (or \"key down\", or \"typed digits\") with a distinct position from 1"
-                        .to_owned(),
-                );
-            }
-            seen.push(ignored.position);
-        }
-        if seen.is_empty() {
-            return Err("input_parity_ignore events name at least one event".to_owned());
-        }
-    }
-    Ok(())
 }
 
 pub(crate) fn view_name(mode: &str) -> Result<&'static str, String> {

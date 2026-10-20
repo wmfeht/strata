@@ -42,9 +42,10 @@ Line 1 of the file, one JSON object. Unknown keys are rejected.
 | `session_bus` | no | `true` starts a private session bus with no service directories, shared by the app and the `dbus_send`, `launch`, and `foreign` steps (all three require it). Without it the app gets a bus address that cannot connect. |
 | `portal` | no | `true` (requires `session_bus`) starts `strata --qa --portal`, the FileChooser portal backend, instead of the browser. There is no window until `portal_open`; `adopt` then drives the chooser. Until a chooser opens, the snapshot is empty. |
 | `fixture_root` | no | `/tmp/<name>`: builds the tree at that fixed path instead of a fresh one, for a screenshot where the path renders. The path must not exist (never reused); runs with a `fixture_root` never overlap one another. |
+| `mutation` | no | The name of a patch in `tests/qa/mutations/` (without `.patch`) that must make the scenario fail; each patch belongs to one scenario. `./scripts/qa-mutation.sh` checks it. Not combinable with `skip`. |
 | `known_bug` | no | An issue reference. A failure becomes the expected result. Needs `known_bug_step`. |
 | `known_bug_step` | with `known_bug` | The file line (header = 1) of the step expected to fail. It must run in every run, carry no `when`/`if`/`unless`, and not be a `layout`, `flag`, `note`, `slice`, `increment`, `stem`, `parent`, `screenshot`, `restart`, `http`, or `foreign_stop` step. A failure anywhere else, or any error, fails the run; a pass fails with "remove the marker". |
-| `skip` | no | A non-empty reason. Keeps the scenario out of the default run (`SKIPPED <scenario> (run it by name): <reason>`); naming it still runs it. Not combinable with `known_bug`. |
+| `skip` | no | A non-empty reason. Keeps the scenario out of the default run (`SKIPPED <scenario> (run it by name): <reason>`); naming it still runs it. Not combinable with `mutation` or `known_bug`. |
 | `cost` | no | `{"<run label>": number}` for exactly every run label, the run's median time over a typical run's, as `scripts/qa_cost.py` writes it (one decimal, at least 0.1); the runner requires a positive finite number. |
 | `quality` | no | `{"impact":1-5,"coverage":1-5,"criticality":1-5,"diagnostic":1-5,"score":0-100,"note":"<one line>"}`. All six keys required and no other; the ratings and `score` are integers; `note` is one non-empty line with no line break of any kind (including U+0085, U+2028, U+2029, and the vertical tab, form feed, and U+001C–U+001E separators). The runner recomputes `score` from the four ratings (`quality_score` in `tests/qa/scenario.rs`) and rejects a mismatch, naming the expected value. The `qa-quality` skill defines the ratings. |
 
@@ -86,7 +87,7 @@ launches.
 | `$fixture_quoted` | That path percent-escaped as a `file://` URI path (without the scheme), for a `.trashinfo` `Path=` or a typed URI. |
 | `$home`, `$data`, `$config`, `$cache` | The run's HOME and XDG data, config, and cache directories. The app's settings are `$config/strata/settings.toml`; its trash is `$data/Trash`. |
 | `$environment` | The directory holding HOME and the XDG directories. |
-| `$python` | The pinned image's Python interpreter. |
+| `$python` | `python3`, the pinned image's system interpreter. |
 | `$view` | `Columns`, `Icons`, or `List`, as `view_mode` names the run's view. |
 | `$mode` | `columns`, `icons`, or `list`. |
 | variant `vars` | Each `$key` of the run's variant. |
@@ -175,7 +176,7 @@ These run in the runner (`drive` in `tests/qa/drive.rs`), between process comman
 | `{"launch":["$fixture/requested-missing"],"percent_path":true}` | Runs another `strata` with arguments (needs `session_bus`); it hands them to the running app over the bus and exits. `percent_path` turns `%XX` into raw bytes. |
 | `{"dbus_send":["--print-reply","--dest=...","/path","iface.Method","array:string:file://..."]}` | `dbus-send --session` on the private bus (needs `session_bus`); fails on a non-zero exit. |
 | `{"screenshot":"hover.png"}` | Captures the X root into the run's artifacts. |
-| `{"baseline":"columns-view"}` | Captures the X root and compares it with the committed image for the GTK version the runner links (`baseline_directory()` in `tests/qa/baseline.rs`): a pixel differs when a channel moves by more than 24; more than 0.5 % differing pixels, a size change, or a missing baseline fails. Artifacts keep `<name>.actual.png`, plus `.expected.png` and `.diff.png` on a mismatch. Never writes a baseline; takes no `message`. |
+| `{"baseline":"columns-view"}` | Captures the X root and compares it with the committed image for the GTK version the runner links (`baseline_directory()` in `tests/qa/baseline.rs`): a pixel differs when a channel moves by more than 24; more than 0.5 % differing pixels, a size change, or a missing baseline fails. Artifacts keep `<name>.actual.png`, plus `.expected.png` and `.diff.png` on a mismatch. Writes the capture as the baseline only under `STRATA_QA_UPDATE_BASELINES=1 ./scripts/qa.sh <scenario>`; takes no `message`. |
 
 ### Peers
 

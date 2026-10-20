@@ -21,11 +21,10 @@ pub(crate) use self::{
     checks::*, chord::*, command::*, expr::*, matchers::*, offset::*, predicate::*, target::*,
 };
 
-/// `tree.DEFAULT_TIMEOUT` in `tests/e2e/harness/tree.py`.
 pub(crate) const DEFAULT_WAIT: Duration = Duration::from_millis(15_000);
-/// `DRAG_STEPS` in `tests/e2e/harness/interaction.py`.
+/// Motion events a drag sends between its press and release.
 pub(crate) const DRAG_STEPS: u32 = 16;
-/// `Pointer.scroll`'s default in `tests/e2e/harness/interaction.py`.
+/// Wheel clicks a `wheel` step sends when it names no count.
 pub(crate) const WHEEL_CLICKS: u32 = 3;
 
 fn yes() -> bool {

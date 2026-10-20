@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-//! Mirrors how the Python page object (`tests/e2e/harness/browser.py`) finds AT-SPI
-//! nodes by role and name and aims at their bounds.
+//! Finds widgets by AT-SPI role and accessible name and aims at their bounds.
 
 use std::collections::HashMap;
 

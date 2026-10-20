@@ -1,0 +1,13 @@
+{"scenario":"global-search-finds-file-under-home","modes":["columns"],"layout":"us","mutation":null,"known_bug":null,"variants":[{"id":"us","vars":{"layout":"us"}},{"id":"ru-only","vars":{"layout":"ru-only"}}],"cost":{"columns-us":0.8,"columns-ru-only":0.8},"quality":{"impact":2,"coverage":3,"criticality":3,"diagnostic":3,"score":20,"note":"Ctrl+K finds a home file from another folder; ru-only variant is the only QA Ctrl+K on a non-Latin layout; home scope is unit-tested"}}
+{"fs":{"path":"$home/reports","mkdir":true,"parents":true}}
+{"fs":{"path":"$home/reports/quarterly-summary.txt","write":"summary\n"}}
+{"layout":"$layout"}
+{"key":"ctrl+k"}
+{"wait":{"field":{}},"message":"an editable field to take focus"}
+{"remember":{"field":true},"as":"field"}
+{"layout":"us"}
+{"type":"quarterly"}
+{"wait":{"field":{"of":"field","text":"quarterly"}},"message":"the query to be typed"}
+{"wait":{"present":{"role":"label","name":"quarterly-summary.txt"}},"message":"the file under home to appear in the search results"}
+{"key":"Escape"}
+{"wait":{"editable_fields":0},"message":"Escape to close the search palette"}

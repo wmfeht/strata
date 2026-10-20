@@ -201,7 +201,7 @@ selection models. They are deliberately not replaced with another navigation eng
 source/depth anchor, slow-click rename and release activation, List metadata/grouping, Icons'
 content hit testing and chooser restrictions remain explicit policies. Tests retain distinct
 pointer, keyboard, lifecycle and filesystem-effect routes rather than replacing them with a
-cross-mode launch smoke test. See [GUI validation](e2e-testing.md) and
+cross-mode launch smoke test. See [GUI validation](testing.md) and
 [live preferences](preferences.md).
 
 ### Browser implementation map

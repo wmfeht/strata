@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Runs the `--qa` scenarios in tests/qa/scenarios/<folder>/ inside the pinned E2E image.
+# Runs the `--qa` scenarios in tests/qa/scenarios/<folder>/ inside the pinned test image.
 #   ./scripts/qa.sh                                  every scenario, every mode
 #   ./scripts/qa.sh arrow-keys-move-focus            one scenario (hyphens or underscores)
 #   ./scripts/qa.sh arrow-keys-move-focus/columns    one run of it
+# STRATA_QA_UPDATE_BASELINES=1 writes each `baseline` capture to tests/qa/baselines.
 set -euo pipefail
 
 unset DISPLAY WAYLAND_DISPLAY NOTIFY_SOCKET
@@ -64,7 +65,7 @@ qa_container_options --rm
 qa_container_mounts
 exec "$engine" run "${options[@]}" "${mounts[@]}" \
   --env "STRATA_QA_KEEP_ARTIFACTS=${STRATA_QA_KEEP_ARTIFACTS:-0}" \
-  --env "STRATA_PARITY_FIXTURES=${STRATA_PARITY_FIXTURES:-0}" \
+  --env "STRATA_QA_UPDATE_BASELINES=${STRATA_QA_UPDATE_BASELINES:-0}" \
   --env "STRATA_QA_NAMED=${named:-0}" \
   "$image" bash -euc '
     mkdir -p "$HOME" "$CARGO_HOME"

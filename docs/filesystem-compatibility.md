@@ -1192,7 +1192,7 @@ same way. Fixtures with other malformed names, which the daemons refuse, fail th
 Requirements and safety:
 
 - Docker on amd64, as a non-root user in the `docker` group, and the host modules `loop`, `vfat`,
-  `exfat`, `ntfs3`, `nfsd`, `nfs`, `cifs` and `fuse`. The image builds on the verified E2E base
+  `exfat`, `ntfs3`, `nfsd`, `nfs`, `cifs` and `fuse`. The image builds on the verified test base
   from `scripts/e2e_base.py`.
 - The container is privileged: it loads host modules and attaches loop devices in the host
   kernel. It has no network; its NFS, SMB and SFTP servers listen only on its own loopback.

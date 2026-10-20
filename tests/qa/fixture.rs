@@ -34,7 +34,7 @@ pub(crate) struct Layout {
     pub(crate) variants: String,
 }
 
-/// Keeps document order, so `settings.toml` matches what the Python harness writes.
+/// Keeps document order, so `settings.toml` lists preferences as the manifest does.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct OrderedMap(pub(crate) Vec<(String, Value)>);
 

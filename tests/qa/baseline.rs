@@ -7,10 +7,11 @@ use std::{
 
 use crate::REPOSITORY;
 
-/// `CHANNEL_TOLERANCE` in `tests/e2e/harness/screenshots.py`.
+/// A pixel differs when one channel moves by more than this.
 const CHANNEL_TOLERANCE: u8 = 24;
-/// `DIFFERENT_PIXEL_BUDGET` in `tests/e2e/harness/screenshots.py`.
 pub(crate) const DIFFERENT_PIXEL_BUDGET: f64 = 0.005;
+/// Set to `1` to write each capture as its committed baseline instead of comparing.
+const UPDATE_BASELINES: &str = "STRATA_QA_UPDATE_BASELINES";
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct Comparison {
@@ -25,7 +26,7 @@ impl Comparison {
         format!(
             "{}: {} ({:.3}% of pixels differ, budget {:.3}%)\n\
              Expected, actual, and diff images are in {}\n\
-             Regenerate deliberately with STRATA_E2E_UPDATE_BASELINES=1 ./scripts/e2e.sh -k baseline.",
+             Regenerate deliberately with STRATA_QA_UPDATE_BASELINES=1 ./scripts/qa.sh <scenario>.",
             self.name,
             self.detail,
             self.different_fraction * 100.0,
@@ -37,7 +38,7 @@ impl Comparison {
 
 fn baseline_directory() -> PathBuf {
     Path::new(REPOSITORY)
-        .join("tests/e2e/baselines")
+        .join("tests/qa/baselines")
         .join(format!(
             "gtk-{}.{}",
             gtk::major_version(),
@@ -45,13 +46,14 @@ fn baseline_directory() -> PathBuf {
         ))
 }
 
-/// Unlike the Python `compare_to_baseline`, a QA run never writes a baseline.
+/// Writes a baseline only when `STRATA_QA_UPDATE_BASELINES=1`.
 pub(crate) fn compare_to_baseline(
     name: &str,
     actual: &Path,
     artifacts: &Path,
 ) -> Result<Comparison, String> {
-    compare_in(&baseline_directory(), name, actual, artifacts)
+    let update = std::env::var_os(UPDATE_BASELINES).is_some_and(|value| value == "1");
+    compare_in(&baseline_directory(), name, actual, artifacts, update)
 }
 
 pub(crate) fn compare_in(
@@ -59,6 +61,7 @@ pub(crate) fn compare_in(
     name: &str,
     actual: &Path,
     artifacts: &Path,
+    update: bool,
 ) -> Result<Comparison, String> {
     let expected = directory.join(format!("{name}.png"));
     fs::copy(actual, artifacts.join(format!("{name}.actual.png")))
@@ -69,6 +72,12 @@ pub(crate) fn compare_in(
         different_fraction,
         detail,
     };
+    if update {
+        fs::create_dir_all(directory)
+            .and_then(|()| fs::copy(actual, &expected))
+            .map_err(|error| format!("cannot write the baseline: {error}"))?;
+        return Ok(comparison(true, 0.0, "updated".to_owned()));
+    }
     if !expected.exists() {
         let profile = directory.file_name().unwrap_or_default().to_string_lossy();
         return Ok(comparison(
@@ -136,7 +145,7 @@ pub(crate) fn different_fraction(mask: &[bool]) -> f64 {
     let different = mask.iter().filter(|differs| **differs).count();
     #[expect(
         clippy::cast_precision_loss,
-        reason = "pixel counts stay far below 2^52, as Python's float division assumes"
+        reason = "pixel counts stay far below 2^52"
     )]
     let fraction = different as f64 / mask.len() as f64;
     fraction

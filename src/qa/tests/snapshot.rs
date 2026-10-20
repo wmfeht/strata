@@ -306,7 +306,7 @@ fn selection_focus_and_negated_predicates_read_every_pane() {
 }
 
 #[test]
-fn window_geometry_checks_mirror_the_twin_arithmetic() {
+fn window_geometry_checks_use_whole_pixel_arithmetic() {
     let window = [0, 0, 1200, 760];
     assert!(state::on_screen([10, 700, 100, 60], window));
     assert!(!state::on_screen([10, 701, 100, 60], window));

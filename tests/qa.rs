@@ -85,21 +85,20 @@ use fixture::{
 use fs_check::FsState;
 use peer_steps::{Peers, Relaunch};
 use process::{Bus, SPAWN, spawn, tail, terminate, wait_for_exit};
-use run::{Outcome, parity_name, pretty, run_result, settled_state};
+use run::{Outcome, pretty, run_result, settled_state};
 use scenario::{Scenario, planned_tests};
 use steps::run_steps;
-use variables::{Places, Run, substitute, substitute_text, twin, unescape, variables};
+use variables::{Places, Run, substitute, substitute_text, unescape, variables};
 
 // scripts/test_qa_drive.py checks qa-drive.sh against the launch values in this file.
 const REPOSITORY: &str = env!("CARGO_MANIFEST_DIR");
 const BINARY: &str = env!("CARGO_BIN_EXE_strata");
-/// `tree.DEFAULT_TIMEOUT`, as long as a Python `strata.wait` waits.
 const DEFAULT_WAIT: Duration = Duration::from_millis(15_000);
 const LAUNCH_TIMEOUT: Duration = Duration::from_secs(90);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(90);
 const WAIT_MARGIN: Duration = Duration::from_secs(30);
 const EXIT_TIMEOUT: Duration = Duration::from_secs(10);
-/// `TERMINATE_GRACE_SECONDS` in `tests/e2e/harness/process.py`.
+/// `TERMINATE_GRACE_SECONDS` in `scripts/headless/process.py`.
 const TERMINATE_GRACE: Duration = Duration::from_secs(5);
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 const FIRST_DISPLAY: u32 = 90;
@@ -136,7 +135,7 @@ const RUNNER_COMMANDS: [&str; 24] = [
 const NOTED_PLACEHOLDER: &str = "noted";
 const FFMPEG_TIMEOUT: Duration = Duration::from_secs(30);
 const CAPTURE_TIMEOUT: Duration = Duration::from_secs(15);
-/// `SESSION_BUS_CONFIG` in `tests/e2e/harness/display.py`: no service directories, so
+/// `SESSION_BUS_CONFIG` in `scripts/headless/display.py`: no service directories, so
 /// nothing on the bus is D-Bus-activatable.
 const SESSION_BUS_CONFIG: &str = r#"<!DOCTYPE busconfig PUBLIC
  "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
@@ -157,22 +156,9 @@ const STEP_WHEN: &str = "when";
 const STEP_IF: &str = "if";
 const STEP_UNLESS: &str = "unless";
 const DEFAULT_TREE: &str = "canonical";
-/// What `state_parity_ignore` may name: `IGNORABLE_STATE` in `scripts/qa_parity_scenarios.py`.
-const IGNORABLE_STATE: [&str; 8] = [
-    "view_mode",
-    "directory",
-    "panes",
-    "focused",
-    "focused_pane",
-    "dialog",
-    "panes.selected",
-    "panes.focused",
-];
 const INPUT_LOG: &str = "input.log";
 const STATE_FILE: &str = "state.json";
 const RESULT_FILE: &str = "result.json";
-/// Set by `scripts/qa_parity.py`: fixture directories are named after the twin's node id.
-const PARITY_FIXTURES: &str = "STRATA_PARITY_FIXTURES";
 const XDG_DIRECTORIES: [(&str, &str); 5] = [
     ("HOME", "home"),
     ("XDG_CONFIG_HOME", "config"),
@@ -180,12 +166,11 @@ const XDG_DIRECTORIES: [(&str, &str); 5] = [
     ("XDG_CACHE_HOME", "cache"),
     ("XDG_STATE_HOME", "state"),
 ];
-const RUNNER_OWNED_ENVIRONMENT: [&str; 7] = [
+const RUNNER_OWNED_ENVIRONMENT: [&str; 6] = [
     "DISPLAY",
     "DBUS_SESSION_BUS_ADDRESS",
     "XDG_RUNTIME_DIR",
     "STRATA_INPUT_LOG",
-    PARITY_FIXTURES,
     "STRATA_STATE_DUMP",
     SHADER_CACHE_VARIABLE,
 ];
@@ -605,12 +590,6 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
         .prefix("strata-qa-")
         .tempdir_in("/tmp")
         .expect("the run's scratch directory should be created");
-    let parity = std::env::var_os(PARITY_FIXTURES).is_some_and(|value| value == "1");
-    let parity_name = |prefix: &str| {
-        twin(&scenario.header, run)
-            .filter(|_| parity)
-            .map(|node| parity_name(prefix, &node))
-    };
     let fixed_name = scenario
         .header
         .fixture_root
@@ -623,9 +602,9 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     });
     let mut fixture = tempfile::Builder::new();
-    let fixture = match (fixed_name, parity_name("strata-fixture-").as_deref()) {
-        (Some(name), _) | (None, Some(name)) => fixture.prefix(name).rand_bytes(0),
-        (None, None) => fixture.prefix("strata-qa-fixture-"),
+    let fixture = match fixed_name {
+        Some(name) => fixture.prefix(name).rand_bytes(0),
+        None => fixture.prefix("strata-qa-fixture-"),
     }
     .tempdir_in("/tmp");
     // Another run's directory, or anything else already there, is never reused.
@@ -640,13 +619,6 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
             };
         }
     };
-    let parity_home = parity_name("strata-home-").map(|name| {
-        tempfile::Builder::new()
-            .prefix(&name)
-            .rand_bytes(0)
-            .tempdir_in("/tmp")
-            .expect("the environment directory should be created")
-    });
     let artifacts = Path::new(REPOSITORY)
         .join("target/qa-artifacts")
         .join(&scenario.header.scenario)
@@ -657,10 +629,7 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
         ..Outcome::default()
     };
 
-    let home = parity_home.as_ref().map_or_else(
-        || scratch.path().join("home"),
-        |home| home.path().to_owned(),
-    );
+    let home = scratch.path().join("home");
     let runtime = scratch.path().join("runtime");
     let places = Places {
         fixture: fixture.path(),

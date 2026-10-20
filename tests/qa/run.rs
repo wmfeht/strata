@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 
 use std::{
-    fmt::Write as _,
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -14,7 +13,7 @@ use crate::{
     harness, require_container,
     scenario::{Scenario, load_scenario},
     steps::run_steps,
-    variables::{Run, placeholders, run_name, runs, twin, variables},
+    variables::{Run, placeholders, run_name, runs, variables},
 };
 
 const STATE_SETTLE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -51,7 +50,7 @@ pub(crate) fn run_scenario(path: &Path, label: &str) -> harness::Outcome {
     }
     let outcome = execute(&scenario, &run, &manifest);
     let header = &scenario.header;
-    let name = run_name(&header.scenario, header, &run);
+    let name = run_name(&header.scenario, &run);
     let details = |heading: &str| {
         let mut lines: Vec<String> = outcome
             .errors
@@ -88,18 +87,6 @@ pub(crate) fn run_scenario(path: &Path, label: &str) -> harness::Outcome {
             header.known_bug_step.unwrap_or_default()
         )),
     }
-}
-
-/// Must derive the same names as `parity_fixture_name` in `tests/e2e/harness/fixtures.py`
-/// and `parity_environment_name` in `harness/environment.py`.
-pub(crate) fn parity_name(prefix: &str, twin: &str) -> String {
-    use sha2::Digest as _;
-    let digest = sha2::Sha256::digest(twin.as_bytes());
-    let mut name = String::from(prefix);
-    for byte in &digest[..6] {
-        let _ = write!(name, "{byte:02x}");
-    }
-    name
 }
 
 /// Two equal reads in a row, so a late selection or focus change is not compared half done.
@@ -143,7 +130,6 @@ pub(crate) fn run_result(
         "scenario": scenario.header.scenario,
         "run": run.label,
         "mode": run.mode,
-        "twin": twin(&scenario.header, run),
         "errors": outcome.errors,
         "failures": failures,
     })
