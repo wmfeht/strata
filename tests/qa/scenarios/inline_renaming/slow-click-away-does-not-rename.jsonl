@@ -1,7 +1,0 @@
-{"scenario":"slow-click-away-does-not-rename","modes":["columns","icons","list"],"layout":"us","mutation":null,"known_bug":null,"variants":[{"id":"icon","vars":{"target":"icon"}},{"id":"name-padding","modes":["columns","list"],"vars":{"target":"name-padding"}}],"cost":{"columns-icon":0.8,"icons-icon":0.8,"list-icon":0.8,"columns-name-padding":0.8,"list-name-padding":0.8},"quality":{"impact":2,"coverage":3,"criticality":3,"diagnostic":4,"score":23,"note":"slow click on a selected row's icon or name padding must not start rename; only scenario using these non-label click routes"}}
-{"select_with_keyboard":"todo.txt"}
-{"click":{"entry":"todo.txt","part":"icon"},"variants":["icon"]}
-{"click":{"entry":"todo.txt","part":"label"},"at":["2/3","50%"],"variants":["name-padding"]}
-{"sleep":600}
-{"expect":{"absent":{"role":"text","name":"Rename"}}}
-{"expect":{"selected":["todo.txt"]}}

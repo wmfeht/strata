@@ -1,8 +1,0 @@
-{"scenario":"missing-directory-restored-and-retried","modes":["columns"],"layout":"us","mutation":null,"known_bug":null,"session_bus":true,"cost":{"columns":0.5},"quality":{"impact":2,"coverage":2,"criticality":2,"diagnostic":4,"score":9,"note":"Retry after restore is unit-tested in open_argument/tests.rs (retry_opens_a_directory_restored_after_the_initial_failure); this adds only the real launch-argument route and window-level error label"}}
-{"launch":["$fixture/requested-missing"]}
-{"wait":{"present":{"role":"label","name_matches":"(?s)The requested location is unavailable.*$fixture/requested-missing|$fixture/requested-missing.*The requested location is unavailable","within":{"other_window":"Strata"}}},"message":"the unavailable-location error"}
-{"expect":{"present":{"role":"button","name":"Retry","within":{"other_window":"Strata"}}}}
-{"fs":{"path":"requested-missing","mkdir":true}}
-{"fs":{"path":"requested-missing/restored.txt","write":"restored\n"}}
-{"click":{"role":"button","name":"Retry","within":{"other_window":"Strata"}}}
-{"wait":{"present":{"named":"restored.txt","within":{"other_window":"Strata"}}},"message":"Retry to open the restored directory"}
