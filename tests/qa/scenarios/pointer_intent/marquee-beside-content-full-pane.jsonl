@@ -1,0 +1,27 @@
+{"scenario":"marquee-beside-content-full-pane","modes":["columns","icons","list"],"prefs":{"single_click_previews":true},"layout":"us","mutation":null,"known_bug":null,"variants":[{"id":"plain","vars":{"modifiers":"plain"}},{"id":"plain-reordered","modes":["list"],"prefs":{"list_column_order":["mode","size","name","type","modified"]},"vars":{"modifiers":"plain"}},{"id":"ctrl","vars":{"modifiers":"ctrl"}},{"id":"ctrl-reordered","modes":["list"],"prefs":{"list_column_order":["mode","size","name","type","modified"]},"vars":{"modifiers":"ctrl"}},{"id":"ctrl-over-select-all","vars":{"modifiers":"ctrl-over-select-all"}},{"id":"ctrl-over-select-all-reordered","modes":["list"],"prefs":{"list_column_order":["mode","size","name","type","modified"]},"vars":{"modifiers":"ctrl-over-select-all"}}],"cost":{"columns-plain":1.0,"icons-plain":1.1,"list-plain":1.1,"list-plain-reordered":1.1,"columns-ctrl":1.0,"icons-ctrl":1.1,"list-ctrl":1.1,"list-ctrl-reordered":1.1,"columns-ctrl-over-select-all":1.2,"icons-ctrl-over-select-all":3.1,"list-ctrl-over-select-all":3.4,"list-ctrl-over-select-all-reordered":3.4},"quality":{"impact":3,"coverage":3,"criticality":3,"diagnostic":3,"score":25,"note":"Marquee from empty space beside occupied rows in a full pane, plain/ctrl/ctrl-alt over select-all; footer fill and no preview; overlaps modifier-clicks and pane-corner scenarios only on routing; unit tests pin hit-testing but not the GUI drag"}}
+{"fs":{"path":"full","mkdir":true}}
+{"fs":{"path":"full/{000..179}.txt","write":"{}\n"}}
+{"select":{"entry":"full"},"modes":["columns"]}
+{"click":{"entry":"full"},"count":2,"modes":["icons","list"]}
+{"wait":{"directory":"full"},"message":"the browser to be working in 'full'"}
+{"settle":{"pane":"full"}}
+{"fs":{"path":"full","remember":"before"}}
+{"key":"ctrl+a","variants":["ctrl-over-select-all","ctrl-over-select-all-reordered"]}
+{"wait":{"present":{"role":"label","name":"180 files selected"}},"message":"select all before the marquee","variants":["ctrl-over-select-all","ctrl-over-select-all-reordered"]}
+{"wheel":{"pane":null},"at":["50%","50%"],"clicks":10,"direction":"up","until":{"on_screen":{"entry":"000.txt","dir":"full"}},"message":"000.txt to scroll back into view","variants":["ctrl-over-select-all","ctrl-over-select-all-reordered"]}
+{"settle":{"entry":"000.txt","dir":"full"},"variants":["ctrl-over-select-all","ctrl-over-select-all-reordered"]}
+{"note":"selected","as":"initial"}
+{"drag":{"from":{"entry":"001.txt","part":"label"},"from_at":["2/3","50%"],"to":{"entry":"011.txt","part":"label"},"to_at":["2/3+3","50%"]},"modes":["columns"],"variants":["plain"]}
+{"drag":{"from":{"entry":"001.txt","part":"icon"},"from_at":["start-6","50%"],"to":{"entry":"011.txt","part":"icon"},"to_at":["start-3","50%"]},"modes":["icons"],"variants":["plain"]}
+{"drag":{"from":{"entry":"001.txt","part":"label"},"from_at":["2/3","50%"],"to":{"entry":"011.txt","part":"label"},"to_at":["2/3+3","50%"]},"modes":["list"],"variants":["plain","plain-reordered"]}
+{"drag":{"from":{"entry":"001.txt","part":"label"},"from_at":["2/3","50%"],"to":{"entry":"011.txt","part":"label"},"to_at":["2/3+3","50%"]},"mods":["ctrl"],"modes":["columns"],"variants":["ctrl"]}
+{"drag":{"from":{"entry":"001.txt","part":"icon"},"from_at":["start-6","50%"],"to":{"entry":"011.txt","part":"icon"},"to_at":["start-3","50%"]},"mods":["ctrl"],"modes":["icons"],"variants":["ctrl"]}
+{"drag":{"from":{"entry":"001.txt","part":"label"},"from_at":["2/3","50%"],"to":{"entry":"011.txt","part":"label"},"to_at":["2/3+3","50%"]},"mods":["ctrl"],"modes":["list"],"variants":["ctrl","ctrl-reordered"]}
+{"drag":{"from":{"entry":"001.txt","part":"label"},"from_at":["2/3","50%"],"to":{"entry":"011.txt","part":"label"},"to_at":["2/3+3","50%"]},"mods":["ctrl","alt"],"modes":["columns"],"variants":["ctrl-over-select-all"]}
+{"drag":{"from":{"entry":"001.txt","part":"icon"},"from_at":["start-6","50%"],"to":{"entry":"011.txt","part":"icon"},"to_at":["start-3","50%"]},"mods":["ctrl","alt"],"modes":["icons"],"variants":["ctrl-over-select-all"]}
+{"drag":{"from":{"entry":"001.txt","part":"label"},"from_at":["2/3","50%"],"to":{"entry":"011.txt","part":"label"},"to_at":["2/3+3","50%"]},"mods":["ctrl","alt"],"modes":["list"],"variants":["ctrl-over-select-all","ctrl-over-select-all-reordered"]}
+{"wait":{"selected":{"at_least":2,"contains":["001.txt","011.txt"]}},"message":"marquee selection beside occupied rows","variants":["plain","plain-reordered"]}
+{"wait":{"selected":{"at_least":2,"toggled":{"names":["001.txt","011.txt"],"against":"$initial"}}},"message":"marquee selection beside occupied rows","variants":["ctrl","ctrl-reordered","ctrl-over-select-all","ctrl-over-select-all-reordered"]}
+{"wait":{"footer_fill":{"ends":["001.txt","011.txt"],"total":180}},"message":"the footer to count the fill left by the marquee","variants":["ctrl-over-select-all","ctrl-over-select-all-reordered"]}
+{"expect":{"preview":null}}
+{"fs":{"path":"full","unchanged":"before"},"timeout_ms":0}

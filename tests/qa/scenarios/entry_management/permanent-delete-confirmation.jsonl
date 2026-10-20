@@ -1,0 +1,17 @@
+{"scenario":"permanent-delete-confirmation","modes":["columns","list"],"layout":"us","mutation":null,"known_bug":null,"cost":{"columns":1.1,"list":1.1},"quality":{"impact":5,"coverage":2,"criticality":4,"diagnostic":4,"score":21,"note":"shift+Delete gate: Cancel keeps file, confirm skips trash; dialog shared with delete-without-trash-focuses-cancel, key route unique"}}
+{"expect":{"view_mode":"$view"}}
+{"select":{"entry":"todo.txt"}}
+{"key":"shift+Delete"}
+{"wait":{"dialog":true},"message":"a dialog to appear"}
+{"expect":{"dialog":"Permanently delete 1 item?"},"message":"unexpected dialog"}
+{"fs":{"path":"todo.txt","exists":true},"timeout_ms":0,"message":"nothing may be deleted before the confirmation is answered"}
+{"click":{"dialog_button":"Cancel"}}
+{"wait":{"dialog":null},"message":"the dialog to close"}
+{"fs":{"path":"todo.txt","exists":true},"timeout_ms":0,"message":"cancelling must keep the file"}
+{"select":{"entry":"todo.txt"}}
+{"key":"shift+Delete"}
+{"wait":{"dialog":true},"message":"a dialog to appear"}
+{"click":{"dialog_button":"Permanently delete 1 item"}}
+{"fs":{"path":"todo.txt","exists":false},"message":"the file to be deleted"}
+{"wait":{"entry_gone":"todo.txt"},"message":"the entry 'todo.txt' to disappear"}
+{"fs":{"path":"$data/Trash/files","empty":true},"timeout_ms":0,"message":"a permanent delete must not go through the trash"}

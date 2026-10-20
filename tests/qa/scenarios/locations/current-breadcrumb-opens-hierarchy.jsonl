@@ -1,0 +1,18 @@
+{"scenario":"current-breadcrumb-opens-hierarchy","modes":["columns"],"layout":"us","mutation":null,"known_bug":null,"cost":{"columns":4.9},"quality":{"impact":3,"coverage":3,"criticality":3,"diagnostic":4,"score":28,"note":"Right-click on current breadcrumb opens hierarchy menu; sole GUI guard, no unit test; typed-path navigation is covered elsewhere"}}
+{"fs":{"path":"deep-breadcrumb-component-0/deep-breadcrumb-component-1/deep-breadcrumb-component-2/deep-breadcrumb-component-3/deep-breadcrumb-component-4/deep-breadcrumb-component-5","mkdir":true,"parents":true}}
+{"wait":{"entry":"deep-breadcrumb-component-0"},"message":"the entry 'deep-breadcrumb-component-0' to appear"}
+{"key":"ctrl+l"}
+{"wait":{"field":{}},"message":"an editable field to take focus"}
+{"remember":{"field":true},"as":"field"}
+{"key":"ctrl+a"}
+{"type":"$fixture/deep-breadcrumb-component-0/deep-breadcrumb-component-1/deep-breadcrumb-component-2/deep-breadcrumb-component-3/deep-breadcrumb-component-4/deep-breadcrumb-component-5"}
+{"wait":{"field":{"of":"field","text":"$fixture/deep-breadcrumb-component-0/deep-breadcrumb-component-1/deep-breadcrumb-component-2/deep-breadcrumb-component-3/deep-breadcrumb-component-4/deep-breadcrumb-component-5"}},"message":"typed location"}
+{"key":"Return"}
+{"wait":{"directory":"deep-breadcrumb-component-5"},"message":"the browser to be working in 'deep-breadcrumb-component-5'"}
+{"settle":{"pane":"deep-breadcrumb-component-5"}}
+{"wait":{"present":{"role":"label","name":"deep-breadcrumb-component-5"}},"message":"current breadcrumb"}
+{"click":{"role":"label","name":"deep-breadcrumb-component-5"},"button":3}
+{"wait":{"present":{"role":"button","name":"deep-breadcrumb-component-5"}},"message":"current hierarchy item"}
+{"click":{"role":"button","name":"deep-breadcrumb-component-4","nth":-1}}
+{"wait":{"directory":"deep-breadcrumb-component-4"},"message":"the browser to be working in 'deep-breadcrumb-component-4'"}
+{"settle":{"pane":"deep-breadcrumb-component-4"}}

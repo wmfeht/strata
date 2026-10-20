@@ -1,0 +1,73 @@
+{"scenario":"repeated-renames-select-stem","modes":["columns","list"],"layout":"us","mutation":null,"known_bug":null,"variants":[{"id":"file","vars":{"kind":"file"}},{"id":"folder","vars":{"kind":"folder"}}],"cost":{"columns-file":1.8,"list-file":1.9,"columns-folder":1.6,"list-folder":1.7},"quality":{"impact":3,"coverage":2,"criticality":2,"diagnostic":3,"score":10,"note":"Repeated F2 renames keep the stem selected for files and dotted folders; keyboard route on dotted folder names is unique, file-stem selection by click is in slow-click-rename-escape-stem; selection is checked only through the typed outcome"}}
+{"select":{"entry":"readme.md"},"variants":["file"]}
+{"select_with_keyboard":"todo.txt","variants":["file"]}
+{"key":"F2","variants":["file"]}
+{"wait":{"field":{"name":"Rename","focused":true}},"message":"the rename editor to take focus","variants":["file"]}
+{"remember":{"field":true},"as":"rename","variants":["file"]}
+{"type":"version-1","variants":["file"]}
+{"wait":{"field":{"of":"rename","text":"version-1.txt"}},"message":"the intended part of the name to be replaced","variants":["file"]}
+{"key":"Return","variants":["file"]}
+{"fs":{"path":"version-1.txt","exists":true},"message":"the renamed entry","variants":["file"]}
+{"wait":{"entry":"version-1.txt"},"message":"the entry 'version-1.txt' to appear","variants":["file"]}
+{"fs":{"path":"todo.txt","exists":false},"timeout_ms":0,"variants":["file"]}
+{"fs":{"path":"version-1.txt","text":"todo\n"},"timeout_ms":0,"variants":["file"]}
+{"select":{"entry":"readme.md"},"variants":["file"]}
+{"select_with_keyboard":"version-1.txt","variants":["file"]}
+{"key":"F2","variants":["file"]}
+{"wait":{"field":{"name":"Rename","focused":true}},"message":"the rename editor to take focus","variants":["file"]}
+{"remember":{"field":true},"as":"rename","variants":["file"]}
+{"type":"version-2","variants":["file"]}
+{"wait":{"field":{"of":"rename","text":"version-2.txt"}},"message":"the intended part of the name to be replaced","variants":["file"]}
+{"key":"Return","variants":["file"]}
+{"fs":{"path":"version-2.txt","exists":true},"message":"the renamed entry","variants":["file"]}
+{"wait":{"entry":"version-2.txt"},"message":"the entry 'version-2.txt' to appear","variants":["file"]}
+{"fs":{"path":"version-1.txt","exists":false},"timeout_ms":0,"variants":["file"]}
+{"fs":{"path":"version-2.txt","text":"todo\n"},"timeout_ms":0,"variants":["file"]}
+{"select":{"entry":"readme.md"},"variants":["file"]}
+{"select_with_keyboard":"version-2.txt","variants":["file"]}
+{"key":"F2","variants":["file"]}
+{"wait":{"field":{"name":"Rename","focused":true}},"message":"the rename editor to take focus","variants":["file"]}
+{"remember":{"field":true},"as":"rename","variants":["file"]}
+{"type":"version-3","variants":["file"]}
+{"wait":{"field":{"of":"rename","text":"version-3.txt"}},"message":"the intended part of the name to be replaced","variants":["file"]}
+{"key":"Return","variants":["file"]}
+{"fs":{"path":"version-3.txt","exists":true},"message":"the renamed entry","variants":["file"]}
+{"wait":{"entry":"version-3.txt"},"message":"the entry 'version-3.txt' to appear","variants":["file"]}
+{"fs":{"path":"version-2.txt","exists":false},"timeout_ms":0,"variants":["file"]}
+{"fs":{"path":"version-3.txt","text":"todo\n"},"timeout_ms":0,"variants":["file"]}
+{"select":{"entry":"readme.md"},"variants":["folder"]}
+{"select_with_keyboard":"archive","variants":["folder"]}
+{"wait":{"panes":{"ends_with":["archive"]}},"message":"the column the cursor mirrors","modes":["columns"],"variants":["folder"]}
+{"key":"F2","variants":["folder"]}
+{"wait":{"field":{"name":"Rename","focused":true}},"message":"the rename editor to take focus","variants":["folder"]}
+{"remember":{"field":true},"as":"rename","variants":["folder"]}
+{"type":"archive.v1","variants":["folder"]}
+{"wait":{"field":{"of":"rename","text":"archive.v1"}},"message":"the intended part of the name to be replaced","variants":["folder"]}
+{"key":"Return","variants":["folder"]}
+{"fs":{"path":"archive.v1","exists":true},"message":"the renamed entry","variants":["folder"]}
+{"wait":{"entry":"archive.v1"},"message":"the entry 'archive.v1' to appear","variants":["folder"]}
+{"fs":{"path":"archive","exists":false},"timeout_ms":0,"variants":["folder"]}
+{"select":{"entry":"readme.md"},"variants":["folder"]}
+{"select_with_keyboard":"archive.v1","variants":["folder"]}
+{"wait":{"panes":{"ends_with":["archive.v1"]}},"message":"the column the cursor mirrors","modes":["columns"],"variants":["folder"]}
+{"key":"F2","variants":["folder"]}
+{"wait":{"field":{"name":"Rename","focused":true}},"message":"the rename editor to take focus","variants":["folder"]}
+{"remember":{"field":true},"as":"rename","variants":["folder"]}
+{"type":"archive.v2","variants":["folder"]}
+{"wait":{"field":{"of":"rename","text":"archive.v2"}},"message":"the intended part of the name to be replaced","variants":["folder"]}
+{"key":"Return","variants":["folder"]}
+{"fs":{"path":"archive.v2","exists":true},"message":"the renamed entry","variants":["folder"]}
+{"wait":{"entry":"archive.v2"},"message":"the entry 'archive.v2' to appear","variants":["folder"]}
+{"fs":{"path":"archive.v1","exists":false},"timeout_ms":0,"variants":["folder"]}
+{"select":{"entry":"readme.md"},"variants":["folder"]}
+{"select_with_keyboard":"archive.v2","variants":["folder"]}
+{"wait":{"panes":{"ends_with":["archive.v2"]}},"message":"the column the cursor mirrors","modes":["columns"],"variants":["folder"]}
+{"key":"F2","variants":["folder"]}
+{"wait":{"field":{"name":"Rename","focused":true}},"message":"the rename editor to take focus","variants":["folder"]}
+{"remember":{"field":true},"as":"rename","variants":["folder"]}
+{"type":"archive.v3","variants":["folder"]}
+{"wait":{"field":{"of":"rename","text":"archive.v3"}},"message":"the intended part of the name to be replaced","variants":["folder"]}
+{"key":"Return","variants":["folder"]}
+{"fs":{"path":"archive.v3","exists":true},"message":"the renamed entry","variants":["folder"]}
+{"wait":{"entry":"archive.v3"},"message":"the entry 'archive.v3' to appear","variants":["folder"]}
+{"fs":{"path":"archive.v2","exists":false},"timeout_ms":0,"variants":["folder"]}

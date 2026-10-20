@@ -1,0 +1,31 @@
+{"scenario":"double-click-leaves-folder-open-focused","modes":["columns"],"layout":"us","mutation":null,"known_bug":null,"variants":[{"id":"root-single","prefs":{"list_folder_clicks":1},"vars":{"parent":"root","clicks":"single-click-folders"}},{"id":"root-double","prefs":{"list_folder_clicks":2},"vars":{"parent":"root","clicks":"double-click-folders"}},{"id":"clipped-single","prefs":{"list_folder_clicks":1},"vars":{"parent":"clipped-parent","clicks":"single-click-folders"}},{"id":"clipped-double","prefs":{"list_folder_clicks":2},"vars":{"parent":"clipped-parent","clicks":"double-click-folders"}}],"cost":{"columns-root-single":0.9,"columns-root-double":0.9,"columns-clipped-single":1.7,"columns-clipped-double":1.7},"quality":{"impact":3,"coverage":2,"criticality":4,"diagnostic":3,"score":15,"note":"double-click on a folder in columns keeps it open and focused; clipped-parent-double is the only unique route, root-double overlaps clicking-open-folder-focuses-column"}}
+{"remember":{"pane":null},"as":"browser"}
+{"open_menu":{"role":"toggle button","name":"Appearance"},"until":{"present":{"role":"radio menu item","name":"Columns"}},"message":"the appearance menu to open","variants":["clipped-single","clipped-double"]}
+{"wait":{"present":{"role":"toggle button","name":"Preview panel"}},"message":"the preview panel toggle","variants":["clipped-single","clipped-double"]}
+{"key":"Escape","when":{"state":{"target":{"role":"toggle button","name":"Preview panel"},"pressed":false}},"variants":["clipped-single","clipped-double"]}
+{"click":{"role":"toggle button","name":"Preview panel"},"when":{"state":{"target":{"role":"toggle button","name":"Preview panel"},"pressed":true}},"variants":["clipped-single","clipped-double"]}
+{"wait":{"menu_items":null},"message":"the menu to close","variants":["clipped-single","clipped-double"]}
+{"key":"ctrl+l","variants":["clipped-single","clipped-double"]}
+{"wait":{"field":{}},"message":"the location editor to take focus","variants":["clipped-single","clipped-double"]}
+{"key":"Escape","variants":["clipped-single","clipped-double"]}
+{"wait":{"focused_pane":true},"message":"focus to return to the file listing","variants":["clipped-single","clipped-double"]}
+{"fs":{"path":".","populate":{"documents":{"Level 2":{"Level 3":{"leaf.txt":"leaf\n"}}}}},"variants":["clipped-single","clipped-double"]}
+{"select_with_keyboard":"documents","variants":["clipped-single","clipped-double"]}
+{"key":"Return","variants":["clipped-single","clipped-double"]}
+{"wait":{"directory":"documents"},"message":"the browser to be working in 'documents'","variants":["clipped-single","clipped-double"]}
+{"settle":{"pane":"documents"},"variants":["clipped-single","clipped-double"]}
+{"select_with_keyboard":"Level 2","variants":["clipped-single","clipped-double"]}
+{"key":"Return","variants":["clipped-single","clipped-double"]}
+{"wait":{"directory":"Level 2"},"message":"the browser to be working in 'Level 2'","variants":["clipped-single","clipped-double"]}
+{"settle":{"pane":"Level 2"},"variants":["clipped-single","clipped-double"]}
+{"select_with_keyboard":"Level 3","variants":["clipped-single","clipped-double"]}
+{"key":"Return","variants":["clipped-single","clipped-double"]}
+{"wait":{"directory":"Level 3"},"message":"the browser to be working in 'Level 3'","variants":["clipped-single","clipped-double"]}
+{"settle":{"pane":"Level 3"},"variants":["clipped-single","clipped-double"]}
+{"settle":{"entry":"pictures","dir":"$root"}}
+{"click":{"entry":"pictures","dir":"$root"},"count":2,"at":[12,"50%"],"left_bound":"browser"}
+{"wait":{"focused_pane":"pictures"},"message":"the 'pictures' column to take focus"}
+{"wait":{"selected":[],"dir":"pictures"},"message":"the selection to become []"}
+{"sleep":600}
+{"expect":{"pane":"pictures"}}
+{"wait":{"focused_pane":"pictures"},"message":"the 'pictures' column to take focus"}

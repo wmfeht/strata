@@ -1,0 +1,50 @@
+{"scenario":"new-item-backspace-clears-name","modes":["columns"],"layout":"us","mutation":null,"known_bug":null,"variants":[{"id":"folder-False","vars":{"case":"folder-False"}},{"id":"folder-True","vars":{"case":"folder-True"}},{"id":"file-True","vars":{"case":"file-True"}},{"id":"file-True-ru-only","vars":{"case":"file-True-ru-only"}}],"cost":{"columns-folder-False":0.8,"columns-folder-True":1.0,"columns-file-True":1.0,"columns-file-True-ru-only":1.0},"quality":{"impact":3,"coverage":3,"criticality":3,"diagnostic":3,"score":25,"note":"Cleared new-item name reverts to default on Return; only scenario covering Ctrl+X/V and Backspace on the default name, incl. ru layout"}}
+{"select":{"entry":"readme.md"}}
+{"key":"ctrl+shift+n","variants":["folder-False"]}
+{"wait":{"field":{"name":"Rename","focused":true}},"message":"the rename editor to take focus","variants":["folder-False"]}
+{"remember":{"field":true},"as":"rename","variants":["folder-False"]}
+{"click":{"background":true},"button":3,"variants":["folder-True"]}
+{"wait":{"present":{"menu_item":"New Folder"}},"message":"the menu item 'New Folder'","variants":["folder-True"]}
+{"settle":{"menu_item":"New Folder"},"variants":["folder-True"]}
+{"click":{"menu_item":"New Folder"},"variants":["folder-True"]}
+{"wait":{"menu_items":null},"message":"the menu to close","variants":["folder-True"]}
+{"wait":{"field":{"name":"Rename","focused":true}},"message":"the rename editor to take focus","variants":["folder-True"]}
+{"remember":{"field":true},"as":"rename","variants":["folder-True"]}
+{"click":{"background":true},"button":3,"variants":["file-True"]}
+{"wait":{"present":{"menu_item":"New File"}},"message":"the menu item 'New File'","variants":["file-True"]}
+{"settle":{"menu_item":"New File"},"variants":["file-True"]}
+{"click":{"menu_item":"New File"},"variants":["file-True"]}
+{"wait":{"menu_items":null},"message":"the menu to close","variants":["file-True"]}
+{"wait":{"field":{"name":"Rename","focused":true}},"message":"the rename editor to take focus","variants":["file-True"]}
+{"remember":{"field":true},"as":"rename","variants":["file-True"]}
+{"click":{"background":true},"button":3,"variants":["file-True-ru-only"]}
+{"wait":{"present":{"menu_item":"New File"}},"message":"the menu item 'New File'","variants":["file-True-ru-only"]}
+{"settle":{"menu_item":"New File"},"variants":["file-True-ru-only"]}
+{"click":{"menu_item":"New File"},"variants":["file-True-ru-only"]}
+{"wait":{"menu_items":null},"message":"the menu to close","variants":["file-True-ru-only"]}
+{"wait":{"field":{"name":"Rename","focused":true}},"message":"the rename editor to take focus","variants":["file-True-ru-only"]}
+{"remember":{"field":true},"as":"rename","variants":["file-True-ru-only"]}
+{"wait":{"field":{"of":"rename","text":"new folder"}},"message":"the default name to appear","variants":["folder-False","folder-True"]}
+{"fs":{"path":"new folder","is":"dir"},"timeout_ms":0,"variants":["folder-False","folder-True"]}
+{"wait":{"field":{"of":"rename","text":"new file"}},"message":"the default name to appear","variants":["file-True","file-True-ru-only"]}
+{"fs":{"path":"new file","is":"file"},"timeout_ms":0,"variants":["file-True","file-True-ru-only"]}
+{"fs":{"path":"new file","text":""},"timeout_ms":0,"variants":["file-True","file-True-ru-only"]}
+{"key":"End"}
+{"layout":"us","variants":["folder-False","folder-True","file-True"]}
+{"layout":"ru-only","variants":["file-True-ru-only"]}
+{"key":"ctrl+a"}
+{"key":"ctrl+x"}
+{"wait":{"field":{"of":"rename","text":""}},"message":"Ctrl+A and Ctrl+X to cut the entire default name"}
+{"key":"ctrl+v"}
+{"wait":{"field":{"of":"rename","text":"new folder"}},"message":"Ctrl+V to paste the default name back","variants":["folder-False","folder-True"]}
+{"wait":{"field":{"of":"rename","text":"new file"}},"message":"Ctrl+V to paste the default name back","variants":["file-True","file-True-ru-only"]}
+{"key":"ctrl+a"}
+{"key":"BackSpace"}
+{"wait":{"field":{"of":"rename","text":""}},"message":"Ctrl+A and Backspace to clear the entire default name"}
+{"layout":"us"}
+{"key":"Return"}
+{"wait":{"absent":{"role":"text","name":"Rename"}},"message":"the name editor to close"}
+{"wait":{"entry":"new folder"},"message":"the entry 'new folder' to appear","variants":["folder-False","folder-True"]}
+{"fs":{"path":"new folder","exists":true},"timeout_ms":0,"variants":["folder-False","folder-True"]}
+{"wait":{"entry":"new file"},"message":"the entry 'new file' to appear","variants":["file-True","file-True-ru-only"]}
+{"fs":{"path":"new file","exists":true},"timeout_ms":0,"variants":["file-True","file-True-ru-only"]}

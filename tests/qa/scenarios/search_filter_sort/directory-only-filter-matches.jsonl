@@ -1,0 +1,19 @@
+{"scenario":"directory-only-filter-matches","modes":["columns","icons","list"],"prefs":{"filter_include_subfolders":false},"layout":"us","mutation":null,"known_bug":null,"cost":{"columns":1.0,"icons":1.0,"list":1.0},"quality":{"impact":3,"coverage":2,"criticality":3,"diagnostic":4,"score":14,"note":"Plain-text filter with Include subfolders off lists only immediate matches; wildcard-filter-patterns directory variant covers the same scope"}}
+{"select":{"entry":"readme.md","dir":"$root"}}
+{"key":"ctrl+f"}
+{"wait":{"field":{}},"message":"an editable field to take focus"}
+{"remember":{"field":true},"as":"field"}
+{"key":"ctrl+a"}
+{"type":"txt"}
+{"wait":{"field":{"of":"field","text":"txt"}},"message":"the filter query to be typed"}
+{"wait":{"matches":["todo.txt"],"dir":"$root"},"message":"directory-only matches for txt"}
+{"key":"ctrl+a"}
+{"type":"photo"}
+{"wait":{"field":{"of":"field","text":"photo"}},"message":"the filter query to be typed"}
+{"wait":{"matches":[],"dir":"$root"},"message":"directory-only matches for photo"}
+{"key":"ctrl+a"}
+{"type":"archive"}
+{"wait":{"field":{"of":"field","text":"archive"}},"message":"the filter query to be typed"}
+{"wait":{"matches":["archive"],"dir":"$root"},"message":"directory-only matches for archive"}
+{"key":"Escape"}
+{"wait":{"entries":["archive","documents","pictures","readme.md","todo.txt"],"dir":"$root"},"message":"the listing to return"}

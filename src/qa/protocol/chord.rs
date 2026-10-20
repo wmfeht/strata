@@ -19,7 +19,7 @@ impl Modifier {
         }
     }
 
-    /// The US keys the Python harness holds; `altgr` is the right Alt key,
+    /// The US keys a chord holds; `altgr` is the right Alt key,
     /// which AltGr layouts turn into AltGr.
     pub(crate) fn keysym_name(self) -> &'static str {
         match self {

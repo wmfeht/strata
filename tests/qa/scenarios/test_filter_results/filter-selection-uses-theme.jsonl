@@ -1,9 +1,0 @@
-{"scenario":"filter-selection-uses-theme","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_filter_results.py::test_filter_text_selection_uses_the_active_theme","mutation":null,"known_bug":null,"tree":{"match-note.txt":"root decoy\n","alpha":{"match-note.txt":"alpha source\n"},"beta":{"match-note.txt":"beta source\n","only-match.txt":"beta source\n"},"match-note-other.md":"other match\n","destination":{},"thumb.txt":"thumbnail search companion"},"images":{"beta/thumb.png":{"width":64,"height":64,"rgb":[230,40,60]}},"cost":{"columns":0.7},"quality":{"impact":2,"coverage":2,"criticality":3,"diagnostic":3,"score":10,"note":"Ctrl+A filter text selection uses theme accent; only accent_pixels check, but a colour caps coverage"}}
-{"select":{"entry":"match-note.txt"}}
-{"key":"ctrl+f"}
-{"wait":{"field":{}},"message":"an editable field to take focus"}
-{"remember":{"field":true},"as":"filter"}
-{"type":"match-note"}
-{"wait":{"matches":{"count":4}},"message":"all recursive matches"}
-{"key":"ctrl+a"}
-{"wait":{"accent_pixels":{"target":{"field":"filter"},"inset":2,"more_than":100}},"message":"theme-colored filter text selection"}

@@ -1,0 +1,17 @@
+{"scenario":"drop-on-partially-visible-column","modes":["columns"],"prefs":{"single_click_previews":false},"layout":"us","mutation":null,"known_bug":null,"cost":{"columns":1.1},"quality":{"impact":3,"coverage":2,"criticality":4,"diagnostic":3,"score":15,"note":"Drop on a partly visible column in a narrow window moves the file; drag-to-column overlaps strip-edge-scrolls-columns-in; no-jump check is only a pane-exists wait"}}
+{"fs":{"path":"documents/deep","mkdir":true,"parents":true}}
+{"fs":{"path":"documents/deep/cargo.txt","write":"cargo\n"}}
+{"resize":{"width":640,"height":360}}
+{"wait":{"window_width":640},"message":"a narrow window"}
+{"select":{"entry":"documents"}}
+{"wait":{"directory":"documents"},"message":"the browser to be working in 'documents'"}
+{"settle":{"pane":"documents"}}
+{"select":{"entry":"deep","dir":"documents"}}
+{"wait":{"directory":"deep"},"message":"the browser to be working in 'deep'"}
+{"settle":{"pane":"deep"}}
+{"settle":{"pane":"deep"}}
+{"wait":{"panes":{"contains":["documents"]}},"message":"the documents pane"}
+{"drag":{"from":{"entry":"cargo.txt","dir":"deep"},"to":{"point":[{"max":[{"of":{"pane":"documents"},"at":10},{"of":{"ancestor":"scroll pane","of":{"pane":"deep"}},"at":10}]},{"of":{"pane":"documents"},"at":"50%"}]}}}
+{"fs":{"path":"documents/cargo.txt","exists":true},"message":"the file to arrive in documents directory"}
+{"fs":{"path":"documents/deep/cargo.txt","exists":false},"timeout_ms":0}
+{"wait":{"panes":{"contains":["deep"]}},"message":"the deep pane"}

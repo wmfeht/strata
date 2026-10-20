@@ -66,7 +66,7 @@ pass before merge.
 - **Scoped tests are the default, including after failures.** When a run has an
   isolated failure, reproduce that exact test first. After fixing it, rerun that
   test and the affected callers/regressions only. Do not rerun the entire Rust or
-  E2E suite to diagnose one failure, recover a green summary, or satisfy a generic
+  QA suite to diagnose one failure, recover a green summary, or satisfy a generic
   review/push checklist. Preserve earlier results and report the scoped rerun.
   A full rerun requires concrete evidence of broader impact under the escalation
   rule below or an explicit owner request; state that reason before launching it.
@@ -82,16 +82,14 @@ pass before merge.
   This filters test names across targets, not compilation to one target.
   The selected filter must match at least one test, including relevant views,
   callers, or preferences coverage.
-- E2E selections may use repository-relative test paths and pytest `-k`, for
-  example `./scripts/e2e.sh tests/e2e/scenarios/test_inline_renaming.py` or
-  `./scripts/e2e.sh -k 'rename and not visual'`. Confirm collection selects
-  tests with `--collect-only` when useful. `scripts/e2e.sh` is the canonical
-  pinned-container runner; `scripts/e2e-native.sh` is host-toolkit debugging
-  only and cannot replace it. `scripts/quality.sh` accepts only `all`, `fmt`,
-  `clippy`, or `test` and does not forward test filters.
-- Use full pinned `./scripts/quality.sh` phases and canonical
-  `STRATA_CONTAINER_ENGINE=podman ./scripts/e2e.sh` when impact is broad or
-  uncertain. Escalate to both for shared infrastructure, dependencies,
+- QA selections name scenarios, or `<scenario>/<run>` for one run, for
+  example `./scripts/qa.sh copy-leaves-source` or
+  `./scripts/qa.sh arrow-keys-move-focus/columns-ru`; `qa.sh` rejects unknown
+  names and fails a selection that runs no scenario. `scripts/qa.sh` is the
+  canonical pinned-container GUI runner. `scripts/quality.sh` accepts only
+  `all`, `fmt`, `clippy`, or `test` and does not forward test filters.
+- Use full pinned `./scripts/quality.sh` phases and a full `./scripts/qa.sh`
+  run when impact is broad or uncertain. Escalate to both for shared infrastructure, dependencies,
   build/CI/harness code, cross-cutting behavior, or uncertain coverage.
   Even after escalation, isolate individual failures with scoped tests rather
   than repeating the full run. Use `./scripts/quality.sh test` only when a full
@@ -100,9 +98,9 @@ pass before merge.
   and `target/e2e-container` caches.
 - GUI and delegated checks must never use the desktop or an inherited session
   bus. Use private Xvfb and private D-Bus, clear inherited display variables,
-  disable accessibility bridging for Rust tests (E2E needs its private AT-SPI
-  bus), and require GTK tests to run (not silently skip). Stop if the isolated display or bus is unavailable; never fall back to
-  the user's display. See `docs/e2e-testing.md`.
+  disable accessibility bridging, and require GTK tests to run (not silently
+  skip). Stop if the isolated display or bus is unavailable; never fall back to
+  the user's display. See `docs/testing.md`.
 - Documentation-only changes need no GUI/build tests: review the complete diff,
   validate links and example filters against the scripts and existing tests, and
   run `git diff --check`. These checks do not bypass required CI checks.
@@ -121,34 +119,37 @@ pass before merge.
   `tests/qa.rs` refuses to start without `STRATA_QA_CONTAINER=1`.
 - A host run (`STRATA_QA_HOST=1`) needs explicit owner consent for that task.
   Record it and the skipped container run in the handoff; it is never
-  validation evidence. Do not wire the QA runner into `scripts/e2e-native.sh`
-  or `scripts/test-headless.py`. See `docs/e2e-testing.md`.
-- `./scripts/qa.sh`, `./scripts/qa-parity.sh`, `./scripts/qa-drive.sh`, and
-  `./scripts/e2e.sh` share a build cache; run them one after another, never
-  concurrently.
-- A behaviour change updates the Python test and its QA twin together; check
-  the pair with `./scripts/qa-parity.sh` (`--baseline` for twins without a
-  mutation patch).
+  validation evidence. Do not wire the QA runner into
+  `scripts/test-headless.py`. See `docs/testing.md`.
+- `./scripts/qa.sh`, `./scripts/qa-drive.sh`, and `./scripts/qa-mutation.sh`
+  share a build cache; run them one after another, never concurrently.
+- A behaviour change updates the QA scenarios that cover it in the same change.
+  When a scenario with a `mutation` changes, or its patch in
+  `tests/qa/mutations/` stops applying, check it with
+  `./scripts/qa-mutation.sh <scenario>`.
+- Regenerate visual baselines only deliberately, with
+  `STRATA_QA_UPDATE_BASELINES=1 ./scripts/qa.sh <baseline scenario>`, and
+  review the images before committing them.
 
-## E2E base-image reuse
+## Test image reuse
 
-- Run `./scripts/e2e.sh` for normal local testing. It verifies and reuses the local
-  pinned base, or pulls the published base once if missing. It must not rebuild
-  images or fetch Ubuntu packages during ordinary test runs.
+- `./scripts/qa.sh` and `./scripts/quality.sh` verify and reuse the local pinned
+  base built from `tests/container/`, or pull the published base once if
+  missing. They must not rebuild images or fetch distribution packages during
+  ordinary test runs.
 - Prefer rootless Podman and keep the task's isolated configuration, storage, and
   runtime directories across commands. Do not create a fresh container store for
   every invocation, prune other sessions' images, or bypass image-input checks.
 - Only when intentionally changing environment inputs, or when an unpublished
   environment must be bootstrapped, run explicitly:
   `STRATA_CONTAINER_ENGINE=podman python3 scripts/e2e_base.py build`.
-  Run this once, then return to `./scripts/e2e.sh`. Do not habitually rebuild bases
+  Run this once, then return to `./scripts/qa.sh`. Do not habitually rebuild bases
   as a pre-test step. Preserve `target/e2e-container` so Cargo can reuse its cache.
 - Published bases are updated by the trusted-main publisher when environment
   inputs change. Application edits do not require rebuilding the base. Different
   local UID/GID values are handled by generated container account files.
-- The three-minute CI duration is a performance target, not a merge requirement.
-  Timing is informational; test failures, incomplete coverage, and invalid
-  provenance still fail CI. See `docs/e2e-testing.md`.
+- Test failures, incomplete coverage, and invalid image provenance fail CI.
+  See `docs/testing.md`.
 
 ## Private media runtime patches
 
@@ -202,7 +203,7 @@ pass before merge.
   widget-tree or layout assertions.
 - Before adding a test, identify the existing coverage owner. Extend a matching
   setup or use table-driven inputs instead of duplicating default/round-trip
-  assertions or adding another E2E smoke launch. Preserve separate cases where
+  assertions or adding another QA smoke launch. Preserve separate cases where
   initial state, input route, view mode, or lifecycle exercises distinct behavior.
 - Every parameter and loop dimension must affect the exercised behavior or an
   assertion. Do not add unused axes that merely run identical cases again.

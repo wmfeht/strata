@@ -230,7 +230,7 @@ jobs:
           CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
         run: cargo build --release --locked --target "${{ matrix.target }}"
 
-      # Must stay a prefix of `USAGE` in src/qa.rs; scripts/test_qa_parity.py checks it.
+      # Must stay a prefix of `USAGE` in src/qa.rs; scripts/test_qa_mutation.py checks it.
       - name: Check the release binary has no QA mode
         env:
           TARGET: ${{ matrix.target }}

@@ -1,0 +1,33 @@
+{"scenario":"panel-wheel-routing-remaining","modes":["columns"],"layout":"us","mutation":null,"known_bug":null,"tree":{"nested":{"{000..199}.txt":"{}\n"},"{000..199}.txt":"{}\n"},"variants":[{"id":"listing-appearance","modes":["list"],"vars":{"case":"listing-appearance-list"}},{"id":"listing-thumbnail","modes":["icons"],"vars":{"case":"listing-thumbnail-icons"}},{"id":"sidebar-sort","modes":["columns"],"vars":{"case":"sidebar-sort-columns"}},{"id":"sidebar-appearance","modes":["list"],"vars":{"case":"sidebar-appearance-list"}},{"id":"sidebar-thumbnail","modes":["icons"],"vars":{"case":"sidebar-thumbnail-icons"}},{"id":"inside-sort","modes":["columns"],"vars":{"case":"inside-sort-columns"}},{"id":"inside-appearance","modes":["list"],"vars":{"case":"inside-appearance-list"}},{"id":"inside-thumbnail","modes":["icons"],"vars":{"case":"inside-thumbnail-icons"}}],"cost":{"list-listing-appearance":0.7,"icons-listing-thumbnail":0.7,"columns-sidebar-sort":0.7,"list-sidebar-appearance":0.8,"icons-sidebar-thumbnail":0.7,"columns-inside-sort":0.7,"list-inside-appearance":0.7,"icons-inside-thumbnail":0.7},"quality":{"impact":2,"coverage":4,"criticality":3,"diagnostic":3,"score":30,"note":"Wheel over sidebar/inside/listing closes or keeps Appearance, Thumbnail, Sort panels; listing-over-Sort case is in panel-wheel-routing"}}
+{"wait":{"entry":"005.txt"},"message":"the entry '005.txt' to appear"}
+{"settle":{"entry":"005.txt"}}
+{"click":{"header":"Choose sort field"},"variants":["sidebar-sort","inside-sort"]}
+{"wait":{"present":{"role":"check menu item","name":"Folders first"}},"message":"the sort panel to open","variants":["sidebar-sort","inside-sort"]}
+{"open_menu":{"role":"toggle button","name":"Appearance"},"until":{"present":{"role":"radio menu item","name":"Columns"}},"message":"the appearance menu to open","variants":["listing-appearance","sidebar-appearance","inside-appearance"]}
+{"wait":{"present":{"role":"radio menu item","name":"Compact"}},"message":"the appearance panel to open","variants":["listing-appearance","sidebar-appearance","inside-appearance"]}
+{"activate":{"role":"toggle button","name":"Thumbnail size"},"message":"thumbnail menu must be actionable","variants":["listing-thumbnail","sidebar-thumbnail","inside-thumbnail"]}
+{"wait":{"present":{"role":"label","name":"Small"}},"message":"the thumbnail panel to open","variants":["listing-thumbnail","sidebar-thumbnail","inside-thumbnail"]}
+{"wheel":{"viewport":null},"at":["50%","4/5"],"clicks":1,"variants":["listing-appearance"]}
+{"wheel":{"viewport":null},"at":["50%","4/5"],"clicks":1,"variants":["listing-thumbnail"]}
+{"wheel":{"sidebar":"Home"},"clicks":1,"variants":["sidebar-sort"]}
+{"wheel":{"sidebar":"Home"},"clicks":1,"variants":["sidebar-appearance"]}
+{"wheel":{"sidebar":"Home"},"clicks":1,"variants":["sidebar-thumbnail"]}
+{"wheel":{"role":"check menu item","name":"Folders first"},"clicks":1,"variants":["inside-sort"]}
+{"wheel":{"role":"radio menu item","name":"Compact"},"clicks":1,"variants":["inside-appearance"]}
+{"wheel":{"role":"label","name":"Small"},"clicks":1,"variants":["inside-thumbnail"]}
+{"wait":{"absent":{"role":"radio menu item","name":"Compact"}},"message":"outside wheel to close the panel","variants":["listing-appearance"]}
+{"wait":{"moved":{"target":{"entry":"005.txt"},"direction":"up"}},"message":"the same wheel tick to move the listing","variants":["listing-appearance"]}
+{"wait":{"absent":{"role":"label","name":"Small"}},"message":"outside wheel to close the panel","variants":["listing-thumbnail"]}
+{"wait":{"moved":{"target":{"entry":"005.txt"},"direction":"up"}},"message":"the same wheel tick to move the listing","variants":["listing-thumbnail"]}
+{"wait":{"absent":{"role":"check menu item","name":"Folders first"}},"message":"outside wheel to close the panel","variants":["sidebar-sort"]}
+{"expect":{"moved":{"target":{"entry":"005.txt"},"direction":"none"}},"variants":["sidebar-sort"]}
+{"wait":{"absent":{"role":"radio menu item","name":"Compact"}},"message":"outside wheel to close the panel","variants":["sidebar-appearance"]}
+{"expect":{"moved":{"target":{"entry":"005.txt"},"direction":"none"}},"variants":["sidebar-appearance"]}
+{"wait":{"absent":{"role":"label","name":"Small"}},"message":"outside wheel to close the panel","variants":["sidebar-thumbnail"]}
+{"expect":{"moved":{"target":{"entry":"005.txt"},"direction":"none"}},"variants":["sidebar-thumbnail"]}
+{"expect":{"present":{"role":"check menu item","name":"Folders first"}},"variants":["inside-sort"]}
+{"expect":{"moved":{"target":{"entry":"005.txt"},"direction":"none"}},"variants":["inside-sort"]}
+{"expect":{"present":{"role":"radio menu item","name":"Compact"}},"variants":["inside-appearance"]}
+{"expect":{"moved":{"target":{"entry":"005.txt"},"direction":"none"}},"variants":["inside-appearance"]}
+{"expect":{"present":{"role":"label","name":"Small"}},"variants":["inside-thumbnail"]}
+{"expect":{"moved":{"target":{"entry":"005.txt"},"direction":"none"}},"variants":["inside-thumbnail"]}

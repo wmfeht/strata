@@ -88,18 +88,10 @@ class QualityRunnerTests(unittest.TestCase):
         workflow = (REPOSITORY / ".github/workflows/ci.yml").read_text()
         jobs = dict(re.findall(r"^  ([\w-]+):\n(.*?)(?=^  [\w-]+:\n|\Z)",
                                workflow.split("\njobs:\n", 1)[1], re.M | re.S))
-        for name in ("quality-shard", "quality", "release-scripts"):
+        for name in ("quality-shard", "quality", "qa", "release-scripts"):
             with self.subTest(job=name):
                 condition = re.search(r"^    if: (.+)$", jobs[name], re.M).group(1)
                 self.assertIn("github.event_name != 'push'", condition)
-        self.assertFalse({"e2e-build", "e2e-shard", "e2e"} & jobs.keys())
-        e2e = (REPOSITORY / ".github/workflows/e2e.yml").read_text()
-        triggers = e2e.split("\non:\n", 1)[1].split("\n\n", 1)[0]
-        self.assertEqual(re.findall(r"^  (\w+):", triggers, re.M), ["workflow_dispatch"])
-        e2e_jobs = dict(re.findall(r"^  ([\w-]+):\n(.*?)(?=^  [\w-]+:\n|\Z)",
-                                   e2e.split("\njobs:\n", 1)[1], re.M | re.S))
-        self.assertIn("needs: e2e-build", e2e_jobs["e2e-shard"])
-        self.assertNotIn("always()", e2e_jobs["e2e-shard"])
         build = jobs["quality-build"]
         condition = re.search(r"^    if: (.+)$", build, re.M).group(1)
         self.assertNotIn("github.event_name != 'push'", condition)

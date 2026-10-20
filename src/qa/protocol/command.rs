@@ -647,7 +647,7 @@ fn one_sample() -> usize {
     1
 }
 
-/// `tree.POLL_INTERVAL`, in milliseconds.
+/// How often a wait polls, in milliseconds.
 fn poll_ms() -> u64 {
     50
 }

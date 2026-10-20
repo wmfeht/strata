@@ -1,0 +1,50 @@
+{"scenario":"columns-reveal-in-child-column","modes":["columns"],"layout":"us","mutation":null,"known_bug":null,"tree":{"nested":{"{000..199}.txt":"{}\n"},"a":{"b":{"c":{"d":{"{000..199}.txt":"{}\n"}}}},"{000..199}.txt":"{}\n"},"cost":{"columns":1.8},"quality":{"impact":3,"coverage":2,"criticality":3,"diagnostic":3,"score":13,"note":"Compress via right-click in active child column; columns-reveal-in-parent/deep-column cover the same route and archive-on-screen check"}}
+{"wait":{"view_mode":"Columns"},"message":"the browser to switch to the Columns view"}
+{"select":{"entry":"nested"}}
+{"wait":{"directory":"nested"},"message":"the browser to be working in 'nested'"}
+{"settle":{"pane":"nested"}}
+{"key":"End"}
+{"wait":{"focused":"199.txt"},"message":"keyboard focus to reach '199.txt'"}
+{"click":{"entry":"199.txt","dir":"nested"},"button":3}
+{"wait":{"menu_items":{}},"message":"the context menu for '199.txt'"}
+{"wait":{"present":{"menu_item":"Compress…"}},"message":"the menu item 'Compress…'"}
+{"activate":{"role":"menu item","name":"Compress…"}}
+{"wait":{"menu_items":null},"message":"the menu to close"}
+{"flag":{"field":{}},"timeout_ms":5000,"as":"field1"}
+{"remember":{"field":true},"as":"field","if":"field1"}
+{"key":"ctrl+a","if":"field1"}
+{"type":"199","if":"field1"}
+{"wait":{"field":{"of":"field","text":"199"}},"message":"'199' to reach the name field","if":"field1"}
+{"key":"Return","if":"field1"}
+{"wait":{"dialog":null},"message":"the dialog to close","if":"field1"}
+{"fs":{"path":"nested/199.zip","exists":true},"message":"the archive to be created","if":"field1"}
+{"click":{"entry":"199.txt","dir":"nested"},"button":3,"unless":["field1"]}
+{"wait":{"menu_items":{}},"message":"the context menu for '199.txt'","unless":["field1"]}
+{"wait":{"present":{"menu_item":"Compress…"}},"message":"the menu item 'Compress…'","unless":["field1"]}
+{"activate":{"role":"menu item","name":"Compress…"},"unless":["field1"]}
+{"wait":{"menu_items":null},"message":"the menu to close","unless":["field1"]}
+{"flag":{"field":{}},"timeout_ms":5000,"as":"field2","unless":["field1"]}
+{"remember":{"field":true},"as":"field","if":"field2"}
+{"key":"ctrl+a","if":"field2"}
+{"type":"199","if":"field2"}
+{"wait":{"field":{"of":"field","text":"199"}},"message":"'199' to reach the name field","if":"field2"}
+{"key":"Return","if":"field2"}
+{"wait":{"dialog":null},"message":"the dialog to close","if":"field2"}
+{"fs":{"path":"nested/199.zip","exists":true},"message":"the archive to be created","if":"field2"}
+{"click":{"entry":"199.txt","dir":"nested"},"button":3,"unless":["field1","field2"]}
+{"wait":{"menu_items":{}},"message":"the context menu for '199.txt'","unless":["field1","field2"]}
+{"wait":{"present":{"menu_item":"Compress…"}},"message":"the menu item 'Compress…'","unless":["field1","field2"]}
+{"activate":{"role":"menu item","name":"Compress…"},"unless":["field1","field2"]}
+{"wait":{"menu_items":null},"message":"the menu to close","unless":["field1","field2"]}
+{"flag":{"field":{}},"timeout_ms":5000,"as":"field3","unless":["field1","field2"]}
+{"remember":{"field":true},"as":"field","if":"field3"}
+{"key":"ctrl+a","if":"field3"}
+{"type":"199","if":"field3"}
+{"wait":{"field":{"of":"field","text":"199"}},"message":"'199' to reach the name field","if":"field3"}
+{"key":"Return","if":"field3"}
+{"wait":{"dialog":null},"message":"the dialog to close","if":"field3"}
+{"fs":{"path":"nested/199.zip","exists":true},"message":"the archive to be created","if":"field3"}
+{"fail":"the compress dialog never accepted the archive name","unless":["field1","field2","field3"]}
+{"wait":{"selected":["199.zip"],"dir":"nested"},"message":"the selection to become ['199.zip']"}
+{"wait":{"entry":"199.zip","dir":"nested"},"message":"the entry '199.zip' in 'nested' to appear"}
+{"wait":{"on_screen":{"entry":"199.zip","dir":"nested"}},"message":"the archive to be on screen in the child column"}

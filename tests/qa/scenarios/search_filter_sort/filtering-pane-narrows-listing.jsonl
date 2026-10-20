@@ -1,0 +1,27 @@
+{"scenario":"filtering-pane-narrows-listing","modes":["columns","icons","list"],"layout":"us","mutation":null,"known_bug":null,"variants":[{"id":"input","vars":{"route":"input","query":"spreadsheet","match":"spreadsheet.csv"}},{"id":"result","vars":{"route":"result","query":"spreadsheet","match":"spreadsheet.csv"}},{"id":"in-place","modes":["columns"],"prefs":{"filter_include_subfolders":false},"vars":{"route":"result","query":"todo","match":"todo.txt"}}],"cost":{"columns-input":1.1,"icons-input":1.2,"list-input":1.2,"columns-result":0.7,"icons-result":0.8,"list-result":0.8,"columns-in-place":0.6},"quality":{"impact":3,"coverage":2,"criticality":4,"diagnostic":3,"score":15,"note":"Ctrl+F pane filter narrows and restores; Down-to-results and Escape covered by directory-only and test_filter_results; unique: 0-items footer on miss"}}
+{"select":{"entry":"readme.md","dir":"$root"}}
+{"wait":{"present":{"role":"label","name":"1 file selected (10 B)"}},"message":"the footer to describe the directory selection"}
+{"key":"ctrl+f"}
+{"wait":{"field":{}},"message":"an editable field to take focus"}
+{"remember":{"field":true},"as":"field"}
+{"type":"$query"}
+{"wait":{"field":{"of":"field","text":"$query"}},"message":"the filter query to be typed"}
+{"wait":{"matches":["$match"],"dir":"$root"},"message":"the filter to list only matching entries"}
+{"wait":{"all":[{"present":{"role":"label","name":"1 item"}},{"absent":{"role":"label","name":"1 file selected (10 B)"}}]},"message":"the footer to report the displayed result total"}
+{"expect":{"absent":{"role":"label","name":"filter: $query"}}}
+{"key":"ctrl+a","variants":["input"]}
+{"type":"zzz","variants":["input"]}
+{"wait":{"field":{"of":"field","text":"zzz"}},"message":"the miss query to be typed","variants":["input"]}
+{"wait":{"present":{"role":"label","name":"0 items"}},"message":"the footer to report 0 items on a miss","variants":["input"]}
+{"key":"ctrl+a","variants":["input"]}
+{"type":"$query","variants":["input"]}
+{"wait":{"all":[{"matches":["$match"],"dir":"$root"},{"present":{"role":"label","name":"1 item"}}]},"message":"the original query to list its match again","variants":["input"]}
+{"key":"Down","variants":["result","in-place"]}
+{"wait":{"focused":"$match"},"message":"keyboard focus to reach '$match'","variants":["result","in-place"]}
+{"expect":{"field":{"of":"field","focused":false}},"variants":["result","in-place"]}
+{"key":"Escape"}
+{"wait":{"entries":["archive","documents","pictures","readme.md","todo.txt"],"dir":"$root"},"message":"Escape to restore the full listing"}
+{"wait":{"focused":"readme.md"},"message":"keyboard focus to reach 'readme.md'"}
+{"wait":{"selected":["readme.md"],"dir":"$root"},"message":"the listing to show the directory's selection"}
+{"expect":{"not":{"field":{}}}}
+{"wait":{"present":{"role":"label","name":"1 file selected (10 B)"}},"message":"the footer to describe the directory selection again"}

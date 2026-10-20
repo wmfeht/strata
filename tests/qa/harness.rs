@@ -21,7 +21,7 @@ pub const USAGE: &str = "\
 usage: qa [OPTIONS] [FILTERS...]
 
 Runs the tests whose names contain a filter (all without one), costliest first.
-Run the QA scenarios through ./scripts/qa.sh; see docs/e2e-testing.md.
+Run the QA scenarios through ./scripts/qa.sh; see docs/testing.md.
 
   --exact                 a filter is a whole test name, or a whole scenario name
                           selecting all of its runs

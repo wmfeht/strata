@@ -1,6 +1,0 @@
-{"scenario":"drop-file-on-itself","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_drag_and_drop.py::test_dropping_a_file_on_itself_changes_nothing","mutation":null,"known_bug":null,"cost":{"columns":0.9},"quality":{"impact":2,"coverage":2,"criticality":3,"diagnostic":4,"score":12,"note":"File dropped on itself changes nothing in Columns; drop-folder-into-itself covers the same gesture for folders, paste-onto-self is unit-tested"}}
-{"fs":{"path":".","remember":"before"}}
-{"select":{"entry":"todo.txt"}}
-{"drag":{"from":{"entry":"todo.txt"},"to":{"entry":"todo.txt"}}}
-{"wait":{"entry":"todo.txt"},"message":"the entry 'todo.txt' to appear"}
-{"fs":{"path":".","unchanged":"before"},"timeout_ms":0,"message":"dropping an entry on itself must not move anything"}

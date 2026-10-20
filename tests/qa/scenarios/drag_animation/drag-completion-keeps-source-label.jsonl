@@ -1,0 +1,32 @@
+{"scenario":"drag-completion-keeps-source-label","modes":["columns"],"prefs":{"reduce_motion":false},"layout":"us","mutation":null,"known_bug":null,"gtk_settings":{"gtk-enable-animations":"true"},"variants":[{"id":"escape","vars":{"outcome":"escape"}},{"id":"outside","vars":{"outcome":"outside"}},{"id":"copy","vars":{"outcome":"copy"}},{"id":"move","vars":{"outcome":"move"}},{"id":"noop","vars":{"outcome":"noop"}},{"id":"failed","vars":{"outcome":"failed"}},{"id":"copy-open","prefs":{"open_folder_after_drop":true},"vars":{"outcome":"copy-open"}},{"id":"move-open","prefs":{"open_folder_after_drop":true},"vars":{"outcome":"move-open"}},{"id":"reduced-motion","prefs":{"reduce_motion":true},"vars":{"outcome":"reduced-motion"}}],"cost":{"columns-escape":1.2,"columns-outside":1.2,"columns-copy":1.1,"columns-move":1.1,"columns-noop":1.2,"columns-failed":1.2,"columns-copy-open":1.2,"columns-move-open":1.2,"columns-reduced-motion":1.2},"quality":{"impact":2,"coverage":2,"criticality":4,"diagnostic":3,"score":13,"note":"Source label returns to resting after each drop outcome (sampled pixels); file outcomes duplicate drag_and_drop; origin fix #637"}}
+{"select":{"entry":"todo.txt"}}
+{"remember":{"entry":"todo.txt","part":"label"},"as":"label"}
+{"remember":{"entry":"archive"},"as":"target","variants":["copy","move","copy-open","move-open","failed"]}
+{"remember":{"point":[{"of":{"window":true},"at":"end+30"},{"of":{"window":true},"at":"end+20"}]},"as":"target","variants":["escape","outside","reduced-motion"]}
+{"remember":{"point":[{"of":{"pane":null},"at":"50%"},{"of":{"pane":null},"at":-20}]},"as":"target","variants":["noop"]}
+{"fs":{"path":"archive","chmod":"555"},"variants":["failed"]}
+{"move":{"kept":"target"}}
+{"settle":{"entry":"todo.txt"}}
+{"measure_text":"label","as":"resting"}
+{"drag":{"from":{"entry":"todo.txt"},"to":{"kept":"target"}},"release":false}
+{"key_down":"ctrl","variants":["copy","copy-open"]}
+{"move":{"kept":"target"},"variants":["copy","copy-open"]}
+{"measure_text":"label","as":"dragging"}
+{"expect":{"contrast_below":{"of":"dragging","to":"resting","share":0.8}},"message":"a real source drag must start"}
+{"drop_samples":"label","resting":"resting","dragging":"dragging","escape":true,"as":"released","variants":["escape","reduced-motion"]}
+{"drop_samples":"label","resting":"resting","dragging":"dragging","as":"released","variants":["outside","noop","failed","copy","move","copy-open","move-open"]}
+{"fs":{"path":"archive/todo.txt","exists":true},"message":"the transferred file","variants":["copy","move","copy-open","move-open"]}
+{"fs":{"path":"archive/todo.txt","text":"todo\n"},"timeout_ms":0,"variants":["copy","move","copy-open","move-open"]}
+{"wait":{"entry":"todo.txt","dir":"archive"},"message":"the entry 'todo.txt' in 'archive' to appear","variants":["copy-open","move-open"]}
+{"expect":{"panes":["$root"]},"variants":["copy","move"]}
+{"fs":{"path":"todo.txt","exists":false},"message":"source removal","variants":["move","move-open"]}
+{"wait":{"entry_gone":"todo.txt","dir":"$root"},"message":"the entry 'todo.txt' to disappear","variants":["move","move-open"]}
+{"fs":{"path":"todo.txt","text":"todo\n"},"timeout_ms":0,"variants":["copy","copy-open"]}
+{"wait":{"diagnostics_mention":["could not","permission denied"]},"message":"transfer failure","variants":["failed"]}
+{"wait":{"elapsed":{"since":"released","ms":600}},"message":"the deferred drop handler to finish","variants":["escape","outside","noop","failed","reduced-motion"]}
+{"wait":{"entry":"todo.txt"},"message":"the entry 'todo.txt' to appear","variants":["escape","outside","noop","failed","reduced-motion"]}
+{"fs":{"path":"todo.txt","text":"todo\n"},"timeout_ms":0,"variants":["escape","outside","noop","failed","reduced-motion"]}
+{"fs":{"path":"archive","names":[]},"timeout_ms":0,"variants":["escape","outside","noop","failed","reduced-motion"]}
+{"button_up":1}
+{"key_up":"ctrl"}
+{"fs":{"path":"archive","chmod":"755"}}

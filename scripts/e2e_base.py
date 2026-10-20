@@ -72,7 +72,7 @@ def build_base(engine, repository=REPOSITORY):
                     "--tag", local, "--build-arg", f"E2E_UID={os.getuid()}",
                     "--build-arg", f"E2E_GID={os.getgid()}",
                     "--label", f"org.strata.e2e.inputs={inputs}",
-                    "--file", str(repository / "tests/e2e/Dockerfile"), str(repository)],
+                    "--file", str(repository / "tests/container/Dockerfile"), str(repository)],
                    stdout=sys.stderr, check=True)
     image = inspect(engine, local)
     if image is None:

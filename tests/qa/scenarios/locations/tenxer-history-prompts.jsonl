@@ -1,0 +1,48 @@
+{"scenario":"tenxer-history-prompts","modes":["columns"],"prefs":{"tenxer_mode":true,"type_to_search":false},"layout":"us","mutation":null,"known_bug":null,"cost":{"columns":2.1},"quality":{"impact":3,"coverage":2,"criticality":2,"diagnostic":3,"score":10,"note":"10xer z/Z visited-folder prompts: typed jump, miss does not navigate, Escape opens nothing; folder_jump unit tests cover most routes"}}
+{"key":"g"}
+{"key":"space"}
+{"wait":{"field":{}},"message":"an editable field to take focus"}
+{"type":"documents"}
+{"key":"Return"}
+{"wait":{"directory":"documents"},"message":"the browser to be working in 'documents'"}
+{"settle":{"pane":"documents"}}
+{"key":"g"}
+{"key":"space"}
+{"wait":{"field":{}},"message":"an editable field to take focus"}
+{"type":"../pictures"}
+{"key":"Return"}
+{"wait":{"directory":"pictures"},"message":"the browser to be working in 'pictures'"}
+{"settle":{"pane":"pictures"}}
+{"key":"g"}
+{"key":"space"}
+{"wait":{"field":{}},"message":"an editable field to take focus"}
+{"type":"../archive"}
+{"key":"Return"}
+{"wait":{"directory":"archive"},"message":"the browser to be working in 'archive'"}
+{"settle":{"pane":"archive"}}
+{"key":"z"}
+{"wait":{"field":{}},"message":"an editable field to take focus"}
+{"remember":{"field":true},"as":"field"}
+{"expect":{"present":{"role":"text","name":"Jump to a visited folder"}}}
+{"type":"qqqq"}
+{"wait":{"present":{"role":"label","name":"No matching folders"}},"message":"a miss to report no matching folders"}
+{"key":"Return"}
+{"expect":{"directory":"archive"},"message":"a miss never navigates"}
+{"key":"BackSpace","repeat":4}
+{"type":"doc"}
+{"wait":{"field":{"of":"field","text":"doc"}},"message":"the query to be typed"}
+{"key":"Return"}
+{"wait":{"directory":"documents"},"message":"the browser to be working in 'documents'"}
+{"settle":{"pane":"documents"}}
+{"key":"shift+Z"}
+{"expect":{"present":{"role":"text","name":"Jump to a recently visited folder"}}}
+{"key":"Down"}
+{"key":"Escape"}
+{"wait":{"not":{"field":{}}},"message":"Escape to close the recent prompt"}
+{"expect":{"directory":"documents"},"message":"Escape opens nothing"}
+{"key":"shift+Z"}
+{"wait":{"field":{}},"message":"an editable field to take focus"}
+{"type":"arch"}
+{"key":"Return"}
+{"wait":{"directory":"archive"},"message":"the browser to be working in 'archive'"}
+{"settle":{"pane":"archive"}}

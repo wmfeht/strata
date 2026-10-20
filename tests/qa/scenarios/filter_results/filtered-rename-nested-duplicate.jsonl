@@ -1,0 +1,49 @@
+{"scenario":"filtered-rename-nested-duplicate","modes":["columns","icons","list"],"layout":"us","mutation":null,"known_bug":null,"tree":{"match-note.txt":"root decoy\n","alpha":{"match-note.txt":"alpha source\n"},"beta":{"match-note.txt":"beta source\n","only-match.txt":"beta source\n"},"match-note-other.md":"other match\n","destination":{},"thumb.txt":"thumbnail search companion"},"images":{"beta/thumb.png":{"width":64,"height":64,"rgb":[230,40,60]}},"variants":[{"id":"menu-false","vars":{"trigger":"menu","focus":"False"}},{"id":"f2-false","vars":{"trigger":"F2","focus":"False"}},{"id":"f2-true","vars":{"trigger":"F2","focus":"True"}},{"id":"ctrl-r-false","vars":{"trigger":"ctrl+r","focus":"False"}},{"id":"ctrl-r-true","vars":{"trigger":"ctrl+r","focus":"True"}}],"cost":{"columns-menu-false":1.8,"icons-menu-false":1.8,"list-menu-false":1.8,"columns-f2-false":1.6,"icons-f2-false":1.6,"list-f2-false":1.6,"columns-f2-true":1.7,"icons-f2-true":1.8,"list-f2-true":1.8,"columns-ctrl-r-false":1.6,"icons-ctrl-r-false":1.7,"list-ctrl-r-false":1.7,"columns-ctrl-r-true":1.8,"icons-ctrl-r-true":1.8,"list-ctrl-r-true":1.8},"quality":{"impact":4,"coverage":3,"criticality":3,"diagnostic":3,"score":30,"note":"Rename a nested filter hit via menu, F2 or Ctrl+R; menu route unique here, F2 path shared with matching-rename-stays-searchable"}}
+{"select":{"entry":"match-note.txt"}}
+{"key":"ctrl+f"}
+{"wait":{"field":{}},"message":"an editable field to take focus"}
+{"remember":{"field":true},"as":"filter"}
+{"type":"match-note"}
+{"wait":{"matches":{"count":4}},"message":"all recursive matches"}
+{"wait":{"present":{"result":"beta/match-note.txt"}},"message":"the beta result"}
+{"click":{"result":"beta/match-note.txt"},"button":3,"variants":["menu-false"]}
+{"wait":{"menu_items":{}},"message":"the result menu","variants":["menu-false"]}
+{"wait":{"present":{"menu_item":"Rename"}},"message":"the menu item 'Rename'","variants":["menu-false"]}
+{"settle":{"menu_item":"Rename"},"variants":["menu-false"]}
+{"click":{"menu_item":"Rename"},"variants":["menu-false"]}
+{"wait":{"menu_items":null},"message":"the menu to close","variants":["menu-false"]}
+{"click":{"result":"beta/match-note.txt"},"mods":["ctrl"],"variants":["f2-false"]}
+{"key":"F2","variants":["f2-false"]}
+{"click":{"result":"beta/match-note.txt"},"mods":["ctrl"],"variants":["f2-true"]}
+{"click":{"field":"filter"},"variants":["f2-true"]}
+{"key":"F2","variants":["f2-true"]}
+{"click":{"result":"beta/match-note.txt"},"mods":["ctrl"],"variants":["ctrl-r-false"]}
+{"key":"ctrl+r","variants":["ctrl-r-false"]}
+{"click":{"result":"beta/match-note.txt"},"mods":["ctrl"],"variants":["ctrl-r-true"]}
+{"click":{"field":"filter"},"variants":["ctrl-r-true"]}
+{"key":"ctrl+r","variants":["ctrl-r-true"]}
+{"wait":{"field":{}},"message":"an editable field to take focus"}
+{"expect":{"dialog":null}}
+{"key":"Escape"}
+{"wait":{"absent":{"role":"text","name":"Rename"}},"message":"inline rename to close"}
+{"wait":{"state":{"target":{"result":"beta/match-note.txt"},"focused":true}},"message":"focus to return to the originating result"}
+{"expect":{"state":{"target":{"result":"beta/match-note.txt"},"selected":true}}}
+{"expect":{"field":{"of":"filter","text":"match-note"}}}
+{"fs":{"path":"beta/match-note.txt","text":"beta source\n"},"timeout_ms":0}
+{"fs":{"path":"match-note.txt","text":"root decoy\n"},"timeout_ms":0}
+{"key":"F2"}
+{"wait":{"field":{}},"message":"an editable field to take focus"}
+{"key":"ctrl+a"}
+{"type":"renamed.txt"}
+{"key":"Return"}
+{"fs":{"path":"beta/renamed.txt","text":"beta source\n"},"message":"the nested rename"}
+{"fs":{"path":"beta/match-note.txt","exists":false},"timeout_ms":0}
+{"fs":{"path":"alpha/match-note.txt","text":"alpha source\n"},"timeout_ms":0}
+{"fs":{"path":"match-note.txt","text":"root decoy\n"},"timeout_ms":0}
+{"expect":{"field":{"of":"filter","text":"match-note"}}}
+{"wait":{"absent":{"result":"beta/match-note.txt"}},"message":"the stale hit to disappear"}
+{"click":{"field":"filter"}}
+{"key":"ctrl+a"}
+{"type":"match-note.t"}
+{"wait":{"matches":{"count":2}},"message":"only the surviving matches after a query change"}
+{"expect":{"absent":{"result":"beta/match-note.txt"}}}

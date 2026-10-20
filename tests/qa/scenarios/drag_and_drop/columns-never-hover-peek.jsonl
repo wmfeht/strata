@@ -1,0 +1,7 @@
+{"scenario":"columns-never-hover-peek","modes":["columns"],"prefs":{"folder_peeking":true,"columns_mirror_selection":false},"layout":"us","mutation":null,"known_bug":null,"cost":{"columns":1.2},"quality":{"impact":2,"coverage":2,"criticality":2,"diagnostic":4,"score":9,"note":"Columns hover opens no peek with preference on; unit test columns_ignore_saved_and_live_peeking pins the gate, hover route is shared"}}
+{"move":{"entry":"documents"}}
+{"during":{"peek":false},"ms":1200,"message":"Miller columns must ignore the folder-peeking preference"}
+{"select":{"entry":"documents"}}
+{"wait":{"directory":"documents"},"message":"the browser to be working in 'documents'"}
+{"settle":{"pane":"documents"}}
+{"wait":{"entry":"notes.txt","dir":"documents"},"message":"the entry 'notes.txt' in 'documents' to appear"}

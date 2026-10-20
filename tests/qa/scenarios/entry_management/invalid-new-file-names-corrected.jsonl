@@ -1,0 +1,24 @@
+{"scenario":"invalid-new-file-names-corrected","modes":["columns","icons","list"],"layout":"us","mutation":null,"known_bug":null,"cost":{"columns":1.4,"icons":1.3,"list":1.4},"quality":{"impact":3,"coverage":3,"criticality":3,"diagnostic":3,"score":25,"note":"Invalid name typed into New File editor is rejected and the file is renamed by keyboard; rejection logic unit-tested (operations.rs), editor exit and F2 fix-up only here"}}
+{"select":{"entry":"readme.md"}}
+{"click":{"background":true},"button":3}
+{"wait":{"present":{"menu_item":"New File"}},"message":"the menu item 'New File'"}
+{"settle":{"menu_item":"New File"}}
+{"click":{"menu_item":"New File"}}
+{"wait":{"menu_items":null},"message":"the menu to close"}
+{"wait":{"field":{}},"message":"an editable field to take focus"}
+{"remember":{"field":true},"as":"field"}
+{"wait":{"field":{"of":"field","text":{"starts_with":"new file"}}},"message":"the created file's editor"}
+{"fs":{"path":".","remember_names":"original"}}
+{"type":"bad/name"}
+{"wait":{"field":{"of":"field","text":"bad/name"}},"message":"the invalid name to appear"}
+{"key":"Return"}
+{"wait":{"absent":{"role":"text","name":"Rename"}},"message":"the invalid edit to close"}
+{"fs":{"path":".","names_from":"original"},"timeout_ms":0}
+{"select_with_keyboard":"new file"}
+{"key":"F2"}
+{"wait":{"field":{}},"message":"an editable field to take focus"}
+{"key":"ctrl+a"}
+{"type":"corrected"}
+{"key":"Return"}
+{"fs":{"path":"corrected","is":"file"},"message":"the corrected file on disk"}
+{"wait":{"entry":"corrected"},"message":"the entry 'corrected' to appear"}

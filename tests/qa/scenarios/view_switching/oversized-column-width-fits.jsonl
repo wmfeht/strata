@@ -1,0 +1,11 @@
+{"scenario":"oversized-column-width-fits","modes":["columns"],"prefs":{"browser_column_width":1729},"layout":"us","mutation":null,"known_bug":null,"cost":{"columns":0.6},"quality":{"impact":2,"coverage":1,"criticality":3,"diagnostic":3,"score":0,"note":"saved oversized column width opens inside window; only geometry assertions, which add no coverage (autofit/drag bounds sit in column-autofit-stays-inside)"}}
+{"remember":{"pane":null},"as":"pane"}
+{"wait":{"present":{"role":"button","name":"Refresh (F5)","within":{"remembered":"pane"}}},"message":"the column's header actions"}
+{"remember":{"role":"button","name":"Refresh (F5)","within":{"remembered":"pane"}},"as":"refresh"}
+{"remember":{"window":true},"as":"window"}
+{"sleep":600}
+{"note":"number","expr":{"of":{"remembered":"pane"},"get":"right"},"as":"edge"}
+{"note":"number","expr":{"of":{"remembered":"refresh"},"get":"right"},"as":"actions_end"}
+{"note":"number","expr":{"of":{"kept":"window"},"get":"right"},"as":"window_right"}
+{"expect":{"compare":{"left":"$edge","op":"<=","right":"$window_right"}},"message":"the column's resize edge at $edge is past the window edge $window_right"}
+{"expect":{"compare":{"left":"$actions_end","op":"<=","right":"$window_right"}},"message":"the header actions end at $actions_end, past the window edge $window_right"}

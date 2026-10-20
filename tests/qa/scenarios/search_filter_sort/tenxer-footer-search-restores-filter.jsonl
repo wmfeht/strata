@@ -1,0 +1,19 @@
+{"scenario":"tenxer-footer-search-restores-filter","modes":["columns","icons","list"],"prefs":{"tenxer_mode":true,"type_to_search":false,"single_click_previews":false,"filter_include_subfolders":false},"layout":"us","mutation":null,"known_bug":null,"cost":{"columns":0.7,"icons":0.7,"list":0.7},"quality":{"impact":3,"coverage":1,"criticality":3,"diagnostic":3,"score":0,"note":"Footer search then Esc restores committed filter; GTK footer_prompt tenxer_search_covers_the_current_tree_and_restores_the_filter covers this route"}}
+{"select":{"entry":"readme.md","dir":"$root"}}
+{"key":"f"}
+{"wait":{"field":{}},"message":"an editable field to take focus"}
+{"type":"do"}
+{"key":"Return"}
+{"wait":{"present":{"role":"label","name":"filter: do"}},"message":"the filter to commit"}
+{"key":"s"}
+{"wait":{"field":{}},"message":"an editable field to take focus"}
+{"remember":{"field":true},"as":"field"}
+{"type":"photo"}
+{"wait":{"field":{"of":"field","text":"photo"}},"message":"the search query to stay in the prompt"}
+{"wait":{"matches":["photo.txt"],"dir":"$root"},"message":"the search to list the nested match with Include subfolders off"}
+{"key":"Return"}
+{"wait":{"all":[{"not":{"field":{}}},{"present":{"role":"label","name":"search: photo"}}]},"message":"Enter to apply the search into the footer"}
+{"wait":{"focused":"photo.txt"},"message":"keyboard focus to reach 'photo.txt'"}
+{"key":"Escape"}
+{"wait":{"matches":["documents","todo.txt"],"dir":"$root"},"message":"listing Escape to restore the earlier filter"}
+{"wait":{"all":[{"present":{"role":"label","name":"filter: do"}},{"absent":{"role":"label","name":"search: photo"}}]},"message":"the footer to show the restored filter"}

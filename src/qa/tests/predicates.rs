@@ -11,7 +11,7 @@ use super::{
 };
 
 #[test]
-fn a_note_shapes_a_list_as_the_twin_slices_it() {
+fn a_note_shapes_a_list_as_a_slice_step_reads_it() {
     let names: Vec<String> = ["010", "011", "012", "013", "014", "015", "016"]
         .map(str::to_owned)
         .to_vec();

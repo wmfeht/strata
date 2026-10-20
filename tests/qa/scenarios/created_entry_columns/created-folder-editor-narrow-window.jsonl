@@ -1,0 +1,12 @@
+{"scenario":"created-folder-editor-narrow-window","modes":["columns"],"prefs":{"browser_mode":"columns","single_click_previews":false},"layout":"us","mutation":null,"known_bug":null,"cost":{"columns":0.9},"quality":{"impact":3,"coverage":1,"criticality":3,"diagnostic":4,"score":0,"note":"new-folder editor stays in view at 420px; only unique check is editor geometry (within_window), rest covered by new-items-in-empty-directory"}}
+{"select":{"entry":"readme.md"}}
+{"resize":{"width":420,"height":300}}
+{"wait":{"window_width":420},"message":"a narrow window"}
+{"key":"ctrl+shift+n"}
+{"wait":{"field":{"name":"Rename","focused":true}},"message":"the new folder editor to remain visible in the parent"}
+{"remember":{"field":true},"as":"rename"}
+{"type":"visible-folder"}
+{"wait":{"field":{"of":"rename","text":"visible-folder"}},"message":"typing in the visible editor"}
+{"expect":{"editor_within_window":{"of":"rename","pane":"$root"}}}
+{"key":"Return"}
+{"fs":{"path":"visible-folder","is":"dir"},"message":"the visible folder rename"}

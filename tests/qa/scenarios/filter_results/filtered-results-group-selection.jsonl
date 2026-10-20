@@ -1,0 +1,37 @@
+{"scenario":"filtered-results-group-selection","modes":["columns","icons","list"],"layout":"us","mutation":null,"known_bug":null,"tree":{"match-note.txt":"root decoy\n","alpha":{"match-note.txt":"alpha source\n"},"beta":{"match-note.txt":"beta source\n","only-match.txt":"beta source\n"},"match-note-other.md":"other match\n","destination":{},"thumb.txt":"thumbnail search companion"},"images":{"beta/thumb.png":{"width":64,"height":64,"rgb":[230,40,60]}},"variants":[{"id":"false-shift","prefs":{"filter_include_subfolders":false},"vars":{"rec":"False","route":"shift"}},{"id":"false-keyboard-range","prefs":{"filter_include_subfolders":false},"vars":{"rec":"False","route":"keyboard-range"}},{"id":"false-select-all","prefs":{"filter_include_subfolders":false},"vars":{"rec":"False","route":"select-all"}},{"id":"false-marquee","prefs":{"filter_include_subfolders":false},"vars":{"rec":"False","route":"marquee"}},{"id":"true-shift","prefs":{"filter_include_subfolders":true},"vars":{"rec":"True","route":"shift"}},{"id":"true-keyboard-range","prefs":{"filter_include_subfolders":true},"vars":{"rec":"True","route":"keyboard-range"}},{"id":"true-select-all","prefs":{"filter_include_subfolders":true},"vars":{"rec":"True","route":"select-all"}},{"id":"true-marquee","prefs":{"filter_include_subfolders":true},"vars":{"rec":"True","route":"marquee"}}],"cost":{"columns-false-shift":1.0,"icons-false-shift":1.0,"list-false-shift":1.0,"columns-false-keyboard-range":0.9,"icons-false-keyboard-range":0.9,"list-false-keyboard-range":0.9,"columns-false-select-all":0.9,"icons-false-select-all":0.9,"list-false-select-all":0.9,"columns-false-marquee":0.9,"icons-false-marquee":1.0,"list-false-marquee":1.0,"columns-true-shift":1.0,"icons-true-shift":1.0,"list-true-shift":1.0,"columns-true-keyboard-range":1.0,"icons-true-keyboard-range":1.0,"list-true-keyboard-range":1.0,"columns-true-select-all":0.9,"icons-true-select-all":0.9,"list-true-select-all":0.9,"columns-true-marquee":1.0,"icons-true-marquee":1.0,"list-true-marquee":1.0},"quality":{"impact":3,"coverage":4,"criticality":3,"diagnostic":3,"score":38,"note":"Shift, keyboard range, Ctrl+A and marquee selection of filtered results, flat and recursive; only route coverage for filter-result selection (control-selection-group covers ctrl-click and operations)"}}
+{"select":{"entry":"match-note.txt"},"variants":["false-shift","false-keyboard-range","false-select-all","false-marquee"]}
+{"key":"ctrl+f","variants":["false-shift","false-keyboard-range","false-select-all","false-marquee"]}
+{"wait":{"field":{}},"message":"an editable field to take focus","variants":["false-shift","false-keyboard-range","false-select-all","false-marquee"]}
+{"remember":{"field":true},"as":"filter","variants":["false-shift","false-keyboard-range","false-select-all","false-marquee"]}
+{"type":"match-note","variants":["false-shift","false-keyboard-range","false-select-all","false-marquee"]}
+{"wait":{"matches":{"count":2}},"message":"all recursive matches","variants":["false-shift","false-keyboard-range","false-select-all","false-marquee"]}
+{"expect":{"present":{"result_row":1,"containing":"match-note"}},"variants":["false-shift","false-keyboard-range","false-select-all","false-marquee"]}
+{"expect":{"absent":{"result_row":2,"containing":"match-note"}},"variants":["false-shift","false-keyboard-range","false-select-all","false-marquee"]}
+{"drag":{"from":{"result_row":-1,"containing":"match-note"},"from_at":["50%","end+25"],"to":{"result_row":0,"containing":"match-note"},"to_at":[15,2]},"variants":["false-marquee"]}
+{"click":{"result_row":0,"containing":"match-note"},"mods":["ctrl"],"variants":["false-shift","false-keyboard-range","false-select-all"]}
+{"click":{"result_row":-1,"containing":"match-note"},"mods":["shift"],"variants":["false-shift"]}
+{"key":"ctrl+f","variants":["false-keyboard-range","false-select-all"]}
+{"key":"Down","variants":["false-keyboard-range","false-select-all"]}
+{"key":"shift+Down","repeat":1,"modes":["columns"],"variants":["false-keyboard-range"]}
+{"key":"shift+Right","repeat":1,"modes":["icons"],"variants":["false-keyboard-range"]}
+{"key":"shift+Down","repeat":1,"modes":["list"],"variants":["false-keyboard-range"]}
+{"key":"ctrl+a","variants":["false-select-all"]}
+{"wait":{"all":[{"state":{"target":{"result_row":0,"containing":"match-note"},"selected":true}},{"state":{"target":{"result_row":1,"containing":"match-note"},"selected":true}}]},"message":"all filtered results to be selected","variants":["false-shift","false-keyboard-range","false-select-all","false-marquee"]}
+{"select":{"entry":"match-note.txt"},"variants":["true-shift","true-keyboard-range","true-select-all","true-marquee"]}
+{"key":"ctrl+f","variants":["true-shift","true-keyboard-range","true-select-all","true-marquee"]}
+{"wait":{"field":{}},"message":"an editable field to take focus","variants":["true-shift","true-keyboard-range","true-select-all","true-marquee"]}
+{"remember":{"field":true},"as":"filter","variants":["true-shift","true-keyboard-range","true-select-all","true-marquee"]}
+{"type":"match-note","variants":["true-shift","true-keyboard-range","true-select-all","true-marquee"]}
+{"wait":{"matches":{"count":4}},"message":"all recursive matches","variants":["true-shift","true-keyboard-range","true-select-all","true-marquee"]}
+{"expect":{"present":{"result_row":3,"containing":"match-note"}},"variants":["true-shift","true-keyboard-range","true-select-all","true-marquee"]}
+{"expect":{"absent":{"result_row":4,"containing":"match-note"}},"variants":["true-shift","true-keyboard-range","true-select-all","true-marquee"]}
+{"drag":{"from":{"result_row":-1,"containing":"match-note"},"from_at":["50%","end+25"],"to":{"result_row":0,"containing":"match-note"},"to_at":[15,2]},"variants":["true-marquee"]}
+{"click":{"result_row":0,"containing":"match-note"},"mods":["ctrl"],"variants":["true-shift","true-keyboard-range","true-select-all"]}
+{"click":{"result_row":-1,"containing":"match-note"},"mods":["shift"],"variants":["true-shift"]}
+{"key":"ctrl+f","variants":["true-keyboard-range","true-select-all"]}
+{"key":"Down","variants":["true-keyboard-range","true-select-all"]}
+{"key":"shift+Down","repeat":3,"modes":["columns"],"variants":["true-keyboard-range"]}
+{"key":"shift+Right","repeat":3,"modes":["icons"],"variants":["true-keyboard-range"]}
+{"key":"shift+Down","repeat":3,"modes":["list"],"variants":["true-keyboard-range"]}
+{"key":"ctrl+a","variants":["true-select-all"]}
+{"wait":{"all":[{"state":{"target":{"result_row":0,"containing":"match-note"},"selected":true}},{"state":{"target":{"result_row":1,"containing":"match-note"},"selected":true}},{"state":{"target":{"result_row":2,"containing":"match-note"},"selected":true}},{"state":{"target":{"result_row":3,"containing":"match-note"},"selected":true}}]},"message":"all filtered results to be selected","variants":["true-shift","true-keyboard-range","true-select-all","true-marquee"]}

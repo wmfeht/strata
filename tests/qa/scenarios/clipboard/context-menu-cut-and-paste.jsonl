@@ -1,0 +1,19 @@
+{"scenario":"context-menu-cut-and-paste","modes":["columns","icons","list"],"layout":"us","mutation":null,"known_bug":null,"cost":{"columns":1.2,"icons":1.2,"list":1.2},"quality":{"impact":4,"coverage":2,"criticality":4,"diagnostic":3,"score":17,"note":"Cut via context menu then paste into folder moves file; keyboard cut/paste in cut-moves-only-after-paste and menu paste in context-menu-copy-and-paste overlap"}}
+{"click":{"entry":"readme.md"},"button":3}
+{"wait":{"menu_items":{}},"message":"the context menu for 'readme.md'"}
+{"wait":{"present":{"menu_item":"Cut"}},"message":"the menu item 'Cut'"}
+{"settle":{"menu_item":"Cut"}}
+{"click":{"menu_item":"Cut"}}
+{"wait":{"menu_items":null},"message":"the menu to close"}
+{"select":{"entry":"archive"},"modes":["columns"]}
+{"click":{"entry":"archive"},"count":2,"modes":["icons","list"]}
+{"wait":{"directory":"archive"},"message":"the browser to be working in 'archive'"}
+{"settle":{"pane":"archive"}}
+{"click":{"background":true,"dir":"archive"},"button":3}
+{"wait":{"menu_items":{}},"message":"the destination context menu"}
+{"wait":{"present":{"menu_item":"Paste"}},"message":"the menu item 'Paste'"}
+{"settle":{"menu_item":"Paste"}}
+{"click":{"menu_item":"Paste"}}
+{"wait":{"menu_items":null},"message":"the menu to close"}
+{"fs":{"path":"archive/readme.md","exists":true},"message":"the context-menu cut to complete"}
+{"fs":{"path":"readme.md","exists":false},"message":"the context-menu cut to complete"}

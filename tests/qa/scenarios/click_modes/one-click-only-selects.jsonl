@@ -1,0 +1,4 @@
+{"scenario":"one-click-only-selects","modes":["columns","icons","list"],"prefs":{"list_folder_clicks":2,"list_file_clicks":2,"grid_folder_clicks":2,"grid_file_clicks":2,"explorer_folder_clicks":2,"explorer_file_clicks":2},"layout":"us","mutation":null,"known_bug":null,"cost":{"columns":0.4,"icons":0.4,"list":0.4},"quality":{"impact":3,"coverage":2,"criticality":4,"diagnostic":4,"score":16,"note":"One click selects without opening in double-click mode; two-slow-clicks-do-not-open covers the same no-open route, so only the single-click end state is unique"}}
+{"click":{"entry":"documents"}}
+{"wait":{"selected":["documents"]},"message":"one click to select in double-click mode"}
+{"expect":{"pane":"$root"},"message":"one click must not open the directory"}

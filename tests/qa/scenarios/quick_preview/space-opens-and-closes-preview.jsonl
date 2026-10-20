@@ -1,0 +1,36 @@
+{"scenario":"space-opens-and-closes-preview","modes":["columns"],"prefs":{"single_click_previews":false},"layout":"us","mutation":null,"known_bug":null,"tree":{"notes.txt":"the quick brown fox\n","page.md":"# Heading\n\nBody text.\n","third.txt":"third preview fixture\n","data.csv":"name,value\nalpha,1\n","folder":{"inner.txt":"inner\n","nested-notes.txt":"nested preview fixture\n"}},"variants":[{"id":"keyboard-columns","modes":["columns"],"vars":{"selection":"keyboard"}},{"id":"keyboard-icons","modes":["icons"],"vars":{"selection":"keyboard"}},{"id":"keyboard-list","modes":["list"],"vars":{"selection":"keyboard"}},{"id":"pointer-list","modes":["list"],"vars":{"selection":"pointer"}}],"cost":{"columns-keyboard-columns":1.1,"icons-keyboard-icons":1.2,"list-keyboard-list":1.2,"list-pointer-list":1.2},"quality":{"impact":3,"coverage":2,"criticality":3,"diagnostic":3,"score":13,"note":"Space open/close in three views and by pointer; mostly covered by columns-preview-reopens-after-closing, preview-hides-on-folder and space-previews-filtered-result; unique part is constrained-window suspend/resume and reopen after expanding"}}
+{"note":"entries","as":"before"}
+{"select_with_keyboard":"notes.txt","variants":["keyboard-columns","keyboard-icons","keyboard-list"]}
+{"select":{"entry":"notes.txt"},"variants":["pointer-list"]}
+{"key":"space"}
+{"wait":{"preview":"the quick brown fox"},"message":"the preview to render the file's text"}
+{"expect":{"present":{"role":"label","name":"notes.txt","within":{"preview":true}}}}
+{"expect":{"preview":"text/plain"}}
+{"expect":{"entries":"$before"}}
+{"click":{"role":"button","name":"Close preview (Space)","within":{"preview":true}}}
+{"wait":{"preview":null},"message":"the preview to close"}
+{"note":"number","expr":{"of":{"window":true},"get":"width"},"as":"original_width"}
+{"note":"number","expr":{"of":{"window":true},"get":"height"},"as":"original_height"}
+{"resize":{"width":640,"height":480}}
+{"select":{"entry":"page.md"}}
+{"select":{"entry":"notes.txt"}}
+{"key":"space"}
+{"resize":{"width":320,"height":320}}
+{"wait":{"preview":null},"message":"the constrained preview to stay hidden"}
+{"wait":{"focused":"notes.txt"},"message":"keyboard focus to reach 'notes.txt'"}
+{"key":"End"}
+{"wait":{"selected":["third.txt"]},"message":"the selection to become ['third.txt']"}
+{"resize":{"width":"$original_width","height":"$original_height"}}
+{"wait":{"preview":"third preview fixture"},"message":"the latest preview to resume"}
+{"resize":{"width":480,"height":480}}
+{"wait":{"preview":null},"message":"the preview to suspend again"}
+{"wait":{"focused":"third.txt"},"message":"keyboard focus to reach 'third.txt'"}
+{"key":"space"}
+{"resize":{"width":"$original_width","height":"$original_height"}}
+{"wait":{"window_width":"$original_width"},"message":"the expanded window"}
+{"expect":{"preview":null}}
+{"key":"space"}
+{"wait":{"preview":"third preview fixture"},"message":"the explicitly reopened preview"}
+{"click":{"role":"button","name":"Close preview (Space)","within":{"preview":true}}}
+{"wait":{"preview":null},"message":"the close button to return to browsing"}
+{"expect":{"selected":["third.txt"]}}

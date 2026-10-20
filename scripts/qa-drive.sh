@@ -11,7 +11,7 @@
 # A --pref value is JSON, or else a string. Every exchange is appended to
 # target/qa-drive/transcript.jsonl as {"command":...,"reply":...}. One session
 # per checkout; it shares ./scripts/qa.sh's build cache, so never run the two at once.
-# See "Driving a session by hand" in docs/e2e-testing.md.
+# See "Driving a session by hand" in docs/testing.md.
 set -euo pipefail
 
 unset DISPLAY WAYLAND_DISPLAY NOTIFY_SOCKET

@@ -1,0 +1,51 @@
+{"scenario":"click-away-rename-respects-navigation","modes":["columns"],"layout":"us","mutation":null,"known_bug":null,"variants":[{"id":"Columns","vars":{"view":"Columns"}},{"id":"List","vars":{"view":"List"}}],"cost":{"columns-Columns":1.8,"columns-List":1.9},"quality":{"impact":3,"coverage":3,"criticality":3,"diagnostic":4,"score":28,"note":"Click-away to another pane commits a long-folder rename and navigates; background/tab click-away covered elsewhere, destination and scroll checks unique"}}
+{"open_menu":{"role":"toggle button","name":"Appearance"},"until":{"present":{"role":"radio menu item","name":"Columns"}},"message":"the appearance menu to open"}
+{"wait":{"present":{"role":"toggle button","name":"Preview panel"}},"message":"the preview panel toggle"}
+{"key":"Escape","when":{"state":{"target":{"role":"toggle button","name":"Preview panel"},"pressed":false}}}
+{"click":{"role":"toggle button","name":"Preview panel"},"when":{"state":{"target":{"role":"toggle button","name":"Preview panel"},"pressed":true}}}
+{"wait":{"menu_items":null},"message":"the menu to close"}
+{"key":"ctrl+l"}
+{"wait":{"field":{}},"message":"the location editor to take focus"}
+{"key":"Escape"}
+{"wait":{"focused_pane":true},"message":"focus to return to the file listing"}
+{"open_menu":{"role":"toggle button","name":"Appearance"},"until":{"present":{"role":"radio menu item","name":"Columns"}},"message":"the appearance menu to open","variants":["Columns"]}
+{"wait":{"present":{"role":"radio menu item","name":"Columns"}},"message":"the Columns option","variants":["Columns"]}
+{"click":{"role":"radio menu item","name":"Columns"},"variants":["Columns"]}
+{"wait":{"view_mode":"Columns"},"message":"the browser to switch to the Columns view","variants":["Columns"]}
+{"open_menu":{"role":"toggle button","name":"Appearance"},"until":{"present":{"role":"radio menu item","name":"Columns"}},"message":"the appearance menu to open","variants":["List"]}
+{"wait":{"present":{"role":"radio menu item","name":"List"}},"message":"the List option","variants":["List"]}
+{"click":{"role":"radio menu item","name":"List"},"variants":["List"]}
+{"wait":{"view_mode":"List"},"message":"the browser to switch to the List view","variants":["List"]}
+{"fs":{"path":"rename-target","mkdir":true}}
+{"fs":{"path":"rename-target/m-entry-{000..079}","write":"body\n"}}
+{"remember":{"entry":"rename-target"},"as":"listed"}
+{"key":"F5"}
+{"wait":{"replaced":{"target":{"entry":"rename-target"},"since":"listed"}},"message":"F5's reload to rebuild the row"}
+{"wait":{"entry":"rename-target"},"message":"the entry 'rename-target' to appear"}
+{"select_with_keyboard":"rename-target"}
+{"key":"Return"}
+{"wait":{"directory":"rename-target"},"message":"the browser to be working in 'rename-target'"}
+{"settle":{"pane":"rename-target"}}
+{"key":"Home"}
+{"key":"End"}
+{"wait":{"selected":["m-entry-079"],"dir":"rename-target"},"message":"the selection to become ['m-entry-079']"}
+{"key":"F2","variants":["Columns","List"]}
+{"wait":{"field":{}},"message":"an editable field to take focus"}
+{"remember":{"field":true},"as":"field"}
+{"wait":{"field":{"of":"field","text":"m-entry-079"}},"message":"the original name in the editor","variants":["Columns","List"]}
+{"wait":{"inside":{"target":{"field":"field"},"of":{"container":"rename-target"},"axis":"y"}},"message":"the initial editor inside the viewport without scrolling"}
+{"settle":{"field":"field"}}
+{"expect":{"inside":{"target":{"field":"field"},"of":{"container":"rename-target"},"axis":"y"}}}
+{"fs":{"path":"rename-target/m-entry-079","is":"file"},"timeout_ms":0,"variants":["Columns","List"]}
+{"type":"a-final"}
+{"wait":{"field":{"of":"field","text":"a-final"}},"message":"the final name in the editor"}
+{"click":{"entry":"documents","dir":"$root"},"variants":["Columns"]}
+{"click":{"sidebar":"Home"},"variants":["List"]}
+{"fs":{"path":"rename-target/a-final","exists":true},"message":"the rename on disk"}
+{"wait":{"directory":"documents"},"message":"the browser to be working in 'documents'","variants":["Columns"]}
+{"settle":{"pane":"documents"},"variants":["Columns"]}
+{"wait":{"selected":["documents"],"dir":"$root"},"message":"the selection to become ['documents']","variants":["Columns"]}
+{"wait":{"directory":"home"},"message":"the browser to be working in 'home'","variants":["List"]}
+{"settle":{"pane":"home"},"variants":["List"]}
+{"fs":{"path":"rename-target/m-entry-079","exists":false},"timeout_ms":0}
+{"expect":{"panes":{"excludes":["rename-target"]}}}

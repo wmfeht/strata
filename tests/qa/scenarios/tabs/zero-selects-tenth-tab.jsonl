@@ -1,0 +1,84 @@
+{"scenario":"zero-selects-tenth-tab","modes":["columns"],"prefs":{"tenxer_mode":true},"layout":"us","mutation":null,"known_bug":null,"cost":{"columns":5.2},"quality":{"impact":2,"coverage":3,"criticality":2,"diagnostic":3,"score":16,"note":"t-0 and ctrl+shift+0 select the tenth tab, the only check of digit 0 (tab_index has no unit test); digits 1-2 and ctrl+shift+1 overlap tenxer-tab-chords, which is the superset"}}
+{"wait":{"entry":"todo.txt"},"message":"the entry 'todo.txt' to appear"}
+{"fs":{"path":"tab-{2..10}","mkdir":true}}
+{"key":"F5"}
+{"wait":{"entry":"tab-10"},"message":"the entry 'tab-10' to appear"}
+{"key":"ctrl+shift+1"}
+{"key":"t"}
+{"key":"n"}
+{"select":{"entry":"tab-2"}}
+{"wait":{"directory":"tab-2"},"message":"the browser to be working in 'tab-2'"}
+{"settle":{"pane":"tab-2"}}
+{"wait":{"state":{"target":{"role":"page tab","name":"tab-2"},"selected":true}},"message":"active tab tab-2"}
+{"key":"ctrl+shift+1"}
+{"key":"t"}
+{"key":"n"}
+{"select":{"entry":"tab-3"}}
+{"wait":{"directory":"tab-3"},"message":"the browser to be working in 'tab-3'"}
+{"settle":{"pane":"tab-3"}}
+{"wait":{"state":{"target":{"role":"page tab","name":"tab-3"},"selected":true}},"message":"active tab tab-3"}
+{"key":"ctrl+shift+1"}
+{"key":"t"}
+{"key":"n"}
+{"select":{"entry":"tab-4"}}
+{"wait":{"directory":"tab-4"},"message":"the browser to be working in 'tab-4'"}
+{"settle":{"pane":"tab-4"}}
+{"wait":{"state":{"target":{"role":"page tab","name":"tab-4"},"selected":true}},"message":"active tab tab-4"}
+{"key":"ctrl+shift+1"}
+{"key":"t"}
+{"key":"n"}
+{"select":{"entry":"tab-5"}}
+{"wait":{"directory":"tab-5"},"message":"the browser to be working in 'tab-5'"}
+{"settle":{"pane":"tab-5"}}
+{"wait":{"state":{"target":{"role":"page tab","name":"tab-5"},"selected":true}},"message":"active tab tab-5"}
+{"key":"ctrl+shift+1"}
+{"key":"t"}
+{"key":"n"}
+{"select":{"entry":"tab-6"}}
+{"wait":{"directory":"tab-6"},"message":"the browser to be working in 'tab-6'"}
+{"settle":{"pane":"tab-6"}}
+{"wait":{"state":{"target":{"role":"page tab","name":"tab-6"},"selected":true}},"message":"active tab tab-6"}
+{"key":"ctrl+shift+1"}
+{"key":"t"}
+{"key":"n"}
+{"select":{"entry":"tab-7"}}
+{"wait":{"directory":"tab-7"},"message":"the browser to be working in 'tab-7'"}
+{"settle":{"pane":"tab-7"}}
+{"wait":{"state":{"target":{"role":"page tab","name":"tab-7"},"selected":true}},"message":"active tab tab-7"}
+{"key":"ctrl+shift+1"}
+{"key":"t"}
+{"key":"n"}
+{"select":{"entry":"tab-8"}}
+{"wait":{"directory":"tab-8"},"message":"the browser to be working in 'tab-8'"}
+{"settle":{"pane":"tab-8"}}
+{"wait":{"state":{"target":{"role":"page tab","name":"tab-8"},"selected":true}},"message":"active tab tab-8"}
+{"key":"ctrl+shift+1"}
+{"key":"t"}
+{"key":"n"}
+{"select":{"entry":"tab-9"}}
+{"wait":{"directory":"tab-9"},"message":"the browser to be working in 'tab-9'"}
+{"settle":{"pane":"tab-9"}}
+{"wait":{"state":{"target":{"role":"page tab","name":"tab-9"},"selected":true}},"message":"active tab tab-9"}
+{"key":"ctrl+shift+1"}
+{"key":"t"}
+{"key":"n"}
+{"select":{"entry":"tab-10"}}
+{"wait":{"directory":"tab-10"},"message":"the browser to be working in 'tab-10'"}
+{"settle":{"pane":"tab-10"}}
+{"wait":{"state":{"target":{"role":"page tab","name":"tab-10"},"selected":true}},"message":"active tab tab-10"}
+{"key":"t"}
+{"key":"1"}
+{"wait":{"state":{"target":{"role":"page tab","name":"$root"},"selected":true}},"message":"active tab $root"}
+{"key":"t"}
+{"key":"0"}
+{"wait":{"state":{"target":{"role":"page tab","name":"tab-10"},"selected":true}},"message":"active tab tab-10"}
+{"key":"ctrl+shift+1"}
+{"wait":{"state":{"target":{"role":"page tab","name":"$root"},"selected":true}},"message":"active tab $root"}
+{"key":"ctrl+shift+0"}
+{"wait":{"state":{"target":{"role":"page tab","name":"tab-10"},"selected":true}},"message":"active tab tab-10"}
+{"key":"t"}
+{"key":"x"}
+{"wait":{"state":{"target":{"role":"page tab","name":"tab-9"},"selected":true}},"message":"active tab tab-9"}
+{"key":"t"}
+{"key":"0"}
+{"wait":{"state":{"target":{"role":"page tab","name":"tab-9"},"selected":true}},"message":"active tab tab-9"}

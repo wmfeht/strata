@@ -83,8 +83,7 @@ and selections, missing and failing launches, the new session, executable
 lookup and ownership checks, locale interpolation and framed subprocess I/O.
 They launch small stand-in programs, never LocalSend. The `Integrations`
 workflow runs them whenever files under `integrations/` change. Strata's
-**Send to…** menu routing itself is covered by the file provider and KDE Connect
-E2E scenarios.
+**Send to…** menu routing itself is covered by the file provider QA scenarios.
 
 To try it with the real app, install the provider, select a few disposable
 files and a folder, choose **Send to… ▸ LocalSend**, and

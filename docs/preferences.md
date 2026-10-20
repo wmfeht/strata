@@ -468,4 +468,4 @@ and Icons. See
 The regression suites also check no writes from opening Settings, no duplicate
 notifications, reentrant changes, listener cleanup, failed-write retries and
 notices, symlinked settings files, chooser overrides, type-to-search keyboard
-behavior, and synchronized media controls. Run GTK tests on the private display described in `e2e-testing.md`.
+behavior, and synchronized media controls. Run GTK tests on the private display described in [testing](testing.md).

@@ -1,0 +1,14 @@
+{"scenario":"column-header-titles-bounded","modes":["columns"],"layout":"us","mutation":null,"known_bug":null,"variants":[{"id":"short","vars":{"name":"short"}},{"id":"long","vars":{"name":"portable-device-with-a-very-long-directory-name-portable-device-with-a-very-long-directory-name-portable-device-with-a-very-long-directory-name-portable-device-with-a-very-long-directory-name-"}}],"cost":{"columns-short":0.6,"columns-long":0.6},"quality":{"impact":2,"coverage":1,"criticality":2,"diagnostic":2,"score":0,"note":"All assertions are geometry (320px width cap, title/button overlap and vertical centring); unique only as layout, so coverage 1 per calibration #10; the short variant repeats the long route"}}
+{"fs":{"path":"$name","mkdir":true}}
+{"wait":{"entry":"$name"},"message":"the entry '$name' to appear"}
+{"select":{"entry":"$name"}}
+{"wait":{"directory":"$name"},"message":"the browser to be working in '$name'"}
+{"settle":{"pane":"$name"}}
+{"move":{"pane":"$name"},"at":["50%","50%"]}
+{"wait":{"present":{"role":"label","name":"$name","within":{"pane":"$name"}}},"message":"the column title"}
+{"wait":{"present":{"role":"button","name":"Refresh (F5)","within":{"pane":"$name"}}},"message":"the column actions"}
+{"wait":{"compare":{"left":{"of":{"role":"button","name":"Refresh (F5)","within":{"pane":"$name"}},"get":"height"},"op":">","right":0}},"message":"allocated actions"}
+{"expect":{"compare":{"left":{"of":{"pane":"$name"},"get":"width"},"op":"<=","right":320}}}
+{"expect":{"compare":{"left":{"of":{"role":"label","name":"$name","within":{"pane":"$name"}},"get":"right"},"op":"<=","right":{"of":{"role":"button","name":"Refresh (F5)","within":{"pane":"$name"}},"get":"x"}}}}
+{"expect":{"compare":{"left":{"abs":{"minus":[{"of":{"role":"label","name":"$name","within":{"pane":"$name"}},"get":"center_y"},{"of":{"role":"button","name":"Refresh (F5)","within":{"pane":"$name"}},"get":"center_y"}]}},"op":"<=","right":2}}}
+{"expect":{"compare":{"left":{"abs":{"minus":[{"minus":[{"of":{"parent":{"role":"button","name":"Refresh (F5)","within":{"pane":"$name"}}},"get":"y"},{"of":{"pane":"$name"},"get":"y"}]},{"minus":[{"sum":[{"of":{"pane":"$name"},"get":"y"},{"of":{"parent":{"parent":{"role":"label","name":"$name","within":{"pane":"$name"}}}},"get":"height"}]},{"sum":[{"of":{"parent":{"role":"button","name":"Refresh (F5)","within":{"pane":"$name"}}},"get":"y"},{"of":{"parent":{"role":"button","name":"Refresh (F5)","within":{"pane":"$name"}}},"get":"height"}]}]}]}},"op":"<=","right":1}}}

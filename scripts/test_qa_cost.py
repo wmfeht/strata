@@ -26,10 +26,10 @@ class ScoreTests(unittest.TestCase):
     def test_the_result_lines_give_each_runs_time_and_status(self):
         log = "\n".join([
             "running 4 tests",
-            "RUN copy/columns (twin t.py::test[columns])",
+            "RUN copy/columns",
             "test a_unit_test ... ok <0.001s>",
             "test copy/columns ... ok <12.345s>",
-            "PASS copy/columns (twin t.py::test[columns])",
+            "PASS copy/columns",
             "test copy/list-ru ... FAILED <3.5s>",
             "test copy/icons ... ignored, skipped: issue 9",
             "test result: FAILED. 2 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 12.35s",
@@ -38,7 +38,7 @@ class ScoreTests(unittest.TestCase):
 
 
 class HeaderTests(unittest.TestCase):
-    HEADER = '{"scenario":"x","modes":["columns","list"],"twin":"t.py::f[$mode] ü","nested":{"cost":1}}'
+    HEADER = '{"scenario":"x","modes":["columns","list"],"note":"ü","nested":{"cost":1}}'
 
     def test_a_cost_is_added_last_and_nothing_else_changes(self):
         updated = with_cost(self.HEADER, {"columns": 1.5, "list": 0.1})
@@ -51,7 +51,7 @@ class HeaderTests(unittest.TestCase):
             updated, '{ "scenario" : "x", "cost" : {"columns":0.4} ,"modes":["columns"], "z":"}"}'
         )
 
-    def test_a_scenario_without_a_twin_is_timed_and_keeps_its_quality(self):
+    def test_a_scenario_is_timed_and_keeps_its_quality(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "scenarios/hidden_files").mkdir(parents=True)

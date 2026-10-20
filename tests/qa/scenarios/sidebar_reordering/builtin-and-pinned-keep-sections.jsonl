@@ -1,0 +1,9 @@
+{"scenario":"builtin-and-pinned-keep-sections","modes":["columns"],"layout":"us","mutation":null,"known_bug":null,"cost":{"columns":1.2},"quality":{"impact":2,"coverage":3,"criticality":2,"diagnostic":3,"score":16,"note":"Cross-section drags rejected in GUI, bookmarks unchanged after restart; rule alone unit-tested in src/ui/window/tests/sidebar.rs"}}
+{"fs":{"path":"$config/gtk-3.0","mkdir":true,"parents":true}}
+{"fs":{"path":"$config/gtk-3.0/bookmarks","write":"sftp://host/one One\nsftp://host/two Two\n"}}
+{"restart":true}
+{"drag":{"from":{"sidebar":"Two"},"from_at":["50%","50%"],"to":{"sidebar":"Home"},"to_at":["50%","1/5"]}}
+{"drag":{"from":{"sidebar":"Home"},"from_at":["50%","50%"],"to":{"sidebar":"Two"},"to_at":["50%","1/5"]}}
+{"restart":true}
+{"fs":{"path":"$config/gtk-3.0/bookmarks","text":"sftp://host/one One\nsftp://host/two Two\n"},"timeout_ms":0}
+{"expect":{"child_names":{"of":{"parent":{"sidebar":"Home"}},"role":"button","names":{"starts_with":["Home","Trash"]}}}}

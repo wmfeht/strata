@@ -11,7 +11,7 @@ qa_container_engine() {
 qa_container_prepare() {
   qa_container_engine
   if ! command -v "$engine" >/dev/null 2>&1; then
-    echo "QA scenarios require Docker or Podman; see docs/e2e-testing.md" >&2
+    echo "QA scenarios require Docker or Podman; see docs/testing.md" >&2
     exit 1
   fi
 

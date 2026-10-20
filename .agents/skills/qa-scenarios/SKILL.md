@@ -15,8 +15,8 @@ QA scenarios are Strata's GUI test suite. Each scenario is one `.jsonl` file
 that drives the real app with real X input and checks what a user would see.
 This file covers the common 80%; [reference.md](reference.md) has every
 header key, step, target, predicate, and `fs` kind. The maintained guide is the
-"QA scenarios (`--qa` mode)" section of the GUI testing guide in `docs/`; its
-"Skipped scenarios" and "QA-only waits" lists are part of the suite.
+"QA scenarios (`--qa` mode)" section of `docs/testing.md`; its "Skipped
+scenarios" and "Waits for the app's own timers" lists are part of the suite.
 
 ## How it fits together
 
@@ -69,7 +69,7 @@ STRATA_QA_KEEP_ARTIFACTS=1 ./scripts/qa.sh <name>   # artifacts for passing runs
 Container rules:
 
 - Use Docker or Podman, whichever the scripts select (Podman whenever it is
-  installed); `STRATA_CONTAINER_ENGINE` overrides it. Run container scripts (`scripts/qa.sh`, `scripts/quality.sh`,
+  installed); `STRATA_CONTAINER_ENGINE` overrides it. Run container scripts (`scripts/qa.sh`, `scripts/qa-mutation.sh`, `scripts/quality.sh`,
   and the like) one after another, never concurrently: some share a build
   cache, and all of them load the whole machine.
 - Never run scenarios on the host. `STRATA_QA_HOST=1` needs the owner's
@@ -85,16 +85,15 @@ Container rules:
    for behaviour nothing covers.
 2. **Choose the folder and name.** A new scenario lives in a feature-area
    folder named in snake_case without a `test_` prefix
-   (`tests/qa/scenarios/hidden_files/`); reuse an existing folder without the
-   `test_` prefix when one fits. The file stem is the `scenario` name: lowercase words joined by
+   (`tests/qa/scenarios/hidden_files/`); reuse an existing folder when one
+   fits. The file stem is the `scenario` name: lowercase words joined by
    hyphens, unique across all folders, saying the behaviour
    (`hidden-files-persist-across-restart`). The runner's
    `every_scenario_file_is_planned_and_well_formed` test enforces both.
 3. **Write the header.** Minimum: `{"scenario":"<name>","modes":[...]}`. Add
    `modes` only where the view changes the behaviour; add `prefs`, `tree`,
    `setup`, `variants`, `session_bus`, `env` only as needed. Leave out
-   `cost` until it is measured. Some existing scenarios carry a `twin` field;
-   keep it unchanged when editing them.
+   `cost` until it is measured.
 4. **Build the fixture.** The default tree (`canonical`) is:
    `archive/`, `documents/{notes.txt,report.md,spreadsheet.csv}`,
    `pictures/{diagram.txt,photo.txt}`, `readme.md`, `todo.txt`, `.hidden.txt`.
@@ -163,7 +162,7 @@ listing after the restart.
 
 ### Pointer, context menu, and an inline editor
 
-The steps of `tests/qa/scenarios/test_entry_management/rename-from-context-menu.jsonl`:
+The steps of `tests/qa/scenarios/entry_management/rename-from-context-menu.jsonl`:
 
 ```json
 {"click":{"entry":"readme.md"},"button":3}
@@ -187,26 +186,29 @@ editor so later checks read that field, and checks the result on disk.
 
 ### Every view, and `expect` versus `wait`
 
-The steps of `tests/qa/scenarios/test_selection/right-click-keeps-multi-selection.jsonl`
-(modes `columns`, `icons`, `list`):
+The steps of `tests/qa/scenarios/selection/right-click-selects-entry.jsonl`
+(modes `columns`, `icons`, `list`; variants `file` and `folder` set `$target`
+and `$previous`):
 
 ```json
-{"select":{"entry":"todo.txt","dir":"$root"}}
-{"wait":{"entry":"readme.md","dir":"$root"},"message":"the entry 'readme.md' in '$root' to appear"}
-{"click":{"entry":"readme.md","part":"label","dir":"$root"},"mods":["ctrl"],"at":[4,"50%"]}
-{"wait":{"selected":["readme.md","todo.txt"],"dir":"$root"},"message":"both files to be selected"}
+{"select":{"entry":"readme.md","dir":"$root"}}
 {"wait":{"focused":"readme.md"},"message":"keyboard focus to reach 'readme.md'"}
-{"click":{"entry":"todo.txt","dir":"$root"},"button":3}
-{"wait":{"menu_items":{}},"message":"the context menu for 'todo.txt'"}
-{"expect":{"selected":["readme.md","todo.txt"],"dir":"$root"},"message":"right-clicking inside a multi-selection must not collapse it"}
+{"click":{"entry":"$target","dir":"$root"},"button":3}
+{"wait":{"menu_items":{}},"message":"the context menu for '$target'"}
+{"wait":{"selected":["$target"],"dir":"$root"},"message":"the selection to become ['$target']"}
 {"key":"Escape"}
 {"wait":{"menu_items":null},"message":"the menu to close"}
-{"wait":{"focused":"todo.txt"},"message":"keyboard focus to reach 'todo.txt'"}
-{"wait":{"selected":["readme.md","todo.txt"],"dir":"$root"},"message":"the selection to become ['readme.md', 'todo.txt']"}
+{"wait":{"focused":"$target"},"message":"keyboard focus to reach '$target'"}
+{"expect":{"panes":["$root"]},"message":"a folder context menu must not navigate"}
+{"key":"Left","modes":["icons"]}
+{"key":"Up","modes":["columns","list"]}
+{"wait":{"focused":"$previous"},"message":"keyboard focus to reach '$previous'"}
+{"wait":{"selected":["$previous"],"dir":"$root"},"message":"the selection to become ['$previous']"}
 ```
 
-The `expect` asserts a state that must already hold once the menu shows,
-without stopping the run, so the steps after it still report.
+The `expect` asserts that the menu left the listing where it was without
+stopping the run, so the steps after it still report; the `modes` modifiers
+send the key that moves back one entry in each view.
 
 ## Header fields you will use
 
@@ -218,6 +220,7 @@ without stopping the run, so the steps after it still report.
 | `tree`, `images`, `setup`, `teardown` | Fixture contents, written before launch; `teardown` runs however the run ends. |
 | `session_bus`, `env`, `portal`, `fixture_root` | A private D-Bus; extra app variables; the portal backend; a fixed `/tmp/<name>` fixture path. |
 | `known_bug`, `known_bug_step` | An issue and the line expected to fail. |
+| `mutation` | A patch in `tests/qa/mutations/` the scenario must catch; check it with `./scripts/qa-mutation.sh <scenario>`. |
 | `skip` | A reason; keeps the scenario out of the default run. |
 | `cost` | Measured start-order weights per run label. |
 | `quality` | The scenario's value rating. |
@@ -341,8 +344,10 @@ tests: `python3 -m unittest discover -s scripts -p 'test_*.py'`.
       the scenario was shown to fail when the behaviour breaks.
 - [ ] `cost` covers exactly the run labels; `quality`, if present, was
       re-rated with the `qa-quality` skill.
-- [ ] `skip`, `known_bug`, and any QA-only wait carry an issue and are listed
-      in the guide.
+- [ ] `skip`, `known_bug`, and any wait for the app's own timers carry an
+      issue and are listed in the guide.
+- [ ] A scenario with a `mutation` still catches it:
+      `./scripts/qa-mutation.sh <scenario>`.
 - [ ] Renamed or removed names are gone from `docs/`, `tests/`, and the
       skills.
 - [ ] `git diff --check` is clean.

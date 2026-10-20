@@ -1,0 +1,108 @@
+{"scenario":"action-editor-validates-saves-reopens","modes":["columns"],"layout":"us","mutation":null,"known_bug":null,"cost":{"columns":7.1},"quality":{"impact":3,"coverage":3,"criticality":3,"diagnostic":3,"score":25,"note":"Action editor validate, save to action.toml, reopen and Escape-discard; unit tests cover validation and form round-trip, not GUI save/reopen (batch-rename-template-confirms is unrelated)"}}
+{"activate":{"role":"button","name":"Settings"}}
+{"wait":{"present":{"role":"button","name":"Actions"}},"message":"Actions settings"}
+{"activate":{"role":"button","name":"Actions"}}
+{"wait":{"present":{"role":"button","name":"New action…"}},"message":"New action"}
+{"activate":{"role":"button","name":"New action…"}}
+{"wait":{"present":{"role":"dialog","name":"New action"}},"message":"New action"}
+{"wait":{"present":{"role":"dialog","name":"New action"}},"message":"New action"}
+{"wait":{"present":{"role":"text","name":"Name","within":{"role":"dialog","name":"New action"}}},"message":"Name"}
+{"click":{"role":"text","name":"Name","within":{"role":"dialog","name":"New action"}}}
+{"key":"ctrl+a"}
+{"type":"Batch rename"}
+{"wait":{"text":{"target":{"role":"text","name":"Name","within":{"role":"dialog","name":"New action"}},"text":"Batch rename"}},"message":"Name text"}
+{"wait":{"present":{"role":"text","name":"Description","within":{"role":"dialog","name":"New action"}}},"message":"Description"}
+{"click":{"role":"text","name":"Description","within":{"role":"dialog","name":"New action"}}}
+{"key":"ctrl+a"}
+{"type":"Process selected files"}
+{"wait":{"text":{"target":{"role":"text","name":"Description","within":{"role":"dialog","name":"New action"}},"text":"Process selected files"}},"message":"Description text"}
+{"click":{"window":true},"at":[5,5]}
+{"wait":{"present":{"role":"toggle button","name":"scissors icon","within":{"role":"dialog","name":"New action"}}},"message":"scissors icon"}
+{"click":{"role":"toggle button","name":"scissors icon","within":{"role":"dialog","name":"New action"}}}
+{"wait":{"present":{"role":"page tab","name":"Script","within":{"role":"dialog","name":"New action"}}},"message":"Script"}
+{"click":{"role":"page tab","name":"Script","within":{"role":"dialog","name":"New action"}}}
+{"wait":{"state":{"target":{"role":"page tab","name":"Script","within":{"role":"dialog","name":"New action"}},"selected":true}},"message":"Script tab"}
+{"wait":{"present":{"role":"toggle button","name":"Command","within":{"role":"dialog","name":"New action"}}},"message":"Command"}
+{"click":{"role":"toggle button","name":"Command","within":{"role":"dialog","name":"New action"}}}
+{"wait":{"present":{"role":"text","name":"Program","within":{"role":"dialog","name":"New action"}}},"message":"Program"}
+{"click":{"role":"text","name":"Program","within":{"role":"dialog","name":"New action"}}}
+{"key":"ctrl+a"}
+{"type":"printf"}
+{"wait":{"text":{"target":{"role":"text","name":"Program","within":{"role":"dialog","name":"New action"}},"text":"printf"}},"message":"Program text"}
+{"wait":{"present":{"role":"text","name":"Arguments","within":{"role":"dialog","name":"New action"}}},"message":"Arguments"}
+{"click":{"role":"text","name":"Arguments","within":{"role":"dialog","name":"New action"}}}
+{"key":"ctrl+a"}
+{"type":"%s\\n"}
+{"key":"Return"}
+{"type":"{paths}"}
+{"wait":{"text":{"target":{"role":"text","name":"Arguments","within":{"role":"dialog","name":"New action"}},"text":"%s\\n\n{paths}"}},"message":"Arguments text"}
+{"expect":{"present":{"role":"dialog","name":"New action"}},"message":"Enter in the multiline editor must not submit the form"}
+{"wait":{"present":{"role":"page tab","name":"Behavior","within":{"role":"dialog","name":"New action"}}},"message":"Behavior"}
+{"click":{"role":"page tab","name":"Behavior","within":{"role":"dialog","name":"New action"}}}
+{"wait":{"state":{"target":{"role":"page tab","name":"Behavior","within":{"role":"dialog","name":"New action"}},"selected":true}},"message":"Behavior tab"}
+{"wait":{"present":{"role":"toggle button","name":"Stop","within":{"role":"dialog","name":"New action"}}},"message":"Stop"}
+{"expect":{"state":{"target":{"role":"toggle button","name":"Stop","within":{"role":"dialog","name":"New action"}},"sensitive":false}}}
+{"wait":{"present":{"role":"toggle button","name":"Per item","within":{"role":"dialog","name":"New action"}}},"message":"Per item"}
+{"click":{"role":"toggle button","name":"Per item","within":{"role":"dialog","name":"New action"}}}
+{"wait":{"state":{"target":{"role":"toggle button","name":"Stop","within":{"role":"dialog","name":"New action"}},"sensitive":true}},"message":"per-item failure policy to become available"}
+{"wait":{"present":{"role":"toggle button","name":"Stop","within":{"role":"dialog","name":"New action"}}},"message":"Stop"}
+{"click":{"role":"toggle button","name":"Stop","within":{"role":"dialog","name":"New action"}}}
+{"wait":{"present":{"role":"toggle button","name":"Menu item","within":{"role":"dialog","name":"New action"}}},"message":"Menu item"}
+{"click":{"role":"toggle button","name":"Menu item","within":{"role":"dialog","name":"New action"}}}
+{"wait":{"present":{"role":"text","name":"Extensions","within":{"role":"dialog","name":"New action"}}},"message":"Extensions"}
+{"click":{"role":"text","name":"Extensions","within":{"role":"dialog","name":"New action"}}}
+{"key":"ctrl+a"}
+{"type":"txt"}
+{"wait":{"text":{"target":{"role":"text","name":"Extensions","within":{"role":"dialog","name":"New action"}},"text":"txt"}},"message":"Extensions text"}
+{"wait":{"present":{"role":"button","name":"Create action","within":{"role":"dialog","name":"New action"}}},"message":"Create action"}
+{"settle":{"role":"button","name":"Create action","within":{"role":"dialog","name":"New action"}}}
+{"click":{"role":"button","name":"Create action","within":{"role":"dialog","name":"New action"}}}
+{"wait":{"state":{"target":{"role":"page tab","name":"Script","within":{"role":"dialog","name":"New action"}},"selected":true}},"message":"invalid argument token to return to Script"}
+{"fs":{"path":"$config/strata/actions/batch-rename","exists":false},"timeout_ms":0,"message":"invalid drafts must not write an action"}
+{"wait":{"present":{"role":"text","name":"Arguments","within":{"role":"dialog","name":"New action"}}},"message":"Arguments"}
+{"click":{"role":"text","name":"Arguments","within":{"role":"dialog","name":"New action"}}}
+{"key":"ctrl+a"}
+{"type":"%s\\n"}
+{"key":"Return"}
+{"type":"{path}"}
+{"wait":{"text":{"target":{"role":"text","name":"Arguments","within":{"role":"dialog","name":"New action"}},"text":"%s\\n\n{path}"}},"message":"Arguments text"}
+{"wait":{"present":{"role":"button","name":"Create action","within":{"role":"dialog","name":"New action"}}},"message":"Create action"}
+{"settle":{"role":"button","name":"Create action","within":{"role":"dialog","name":"New action"}}}
+{"click":{"role":"button","name":"Create action","within":{"role":"dialog","name":"New action"}}}
+{"fs":{"path":"$config/strata/actions/batch-rename/action.toml","exists":true},"message":"the action manifest"}
+{"wait":{"absent":{"role":"dialog","name":"New action"}},"message":"the saved editor to close"}
+{"fs":{"path":"$config/strata/actions/batch-rename/action.toml","toml":{"name":"Batch rename","description":"Process selected files","icon":"scissors","menu":"top","when.extensions":["txt"],"run.runtime":"command","run.program":"printf","run.args":["%s\\n","{path}"],"run.mode":"per-item","run.on_error":"stop"}},"timeout_ms":0}
+{"fs":{"path":"$config/strata/actions/batch-rename/action.toml","keep_bytes":"saved"}}
+{"activate":{"role":"button","name":"Edit"}}
+{"wait":{"present":{"role":"dialog","name":"Edit action"}},"message":"Edit action"}
+{"wait":{"present":{"role":"text","name":"Name","within":{"role":"dialog","name":"Edit action"}}},"message":"Name"}
+{"wait":{"state":{"target":{"role":"text","name":"Name","within":{"role":"dialog","name":"Edit action"}},"focused":true}},"message":"Name focused on opening the editor"}
+{"remember":{"field":true},"as":"name"}
+{"expect":{"field":{"of":"name","selection":null,"caret":12}}}
+{"type":" edited"}
+{"wait":{"text":{"target":{"role":"text","name":"Name","within":{"role":"dialog","name":"Edit action"}},"text":"Batch rename edited"}},"message":"typing appends to the action name"}
+{"wait":{"present":{"role":"text","name":"Id","within":{"role":"dialog","name":"Edit action"}}},"message":"Id"}
+{"expect":{"text":{"target":{"role":"text","name":"Id","within":{"role":"dialog","name":"Edit action"}},"text":"batch-rename"}}}
+{"wait":{"present":{"role":"text","name":"Id","within":{"role":"dialog","name":"Edit action"}}},"message":"Id"}
+{"expect":{"state":{"target":{"role":"text","name":"Id","within":{"role":"dialog","name":"Edit action"}},"editable":false}}}
+{"wait":{"present":{"role":"page tab","name":"Script","within":{"role":"dialog","name":"Edit action"}}},"message":"Script"}
+{"click":{"role":"page tab","name":"Script","within":{"role":"dialog","name":"Edit action"}}}
+{"wait":{"state":{"target":{"role":"page tab","name":"Script","within":{"role":"dialog","name":"Edit action"}},"selected":true}},"message":"Script tab"}
+{"wait":{"present":{"role":"text","name":"Arguments","within":{"role":"dialog","name":"Edit action"}}},"message":"Arguments"}
+{"expect":{"text":{"target":{"role":"text","name":"Arguments","within":{"role":"dialog","name":"Edit action"}},"text":"%s\\n\n{path}"}}}
+{"click":{"window":true},"at":[5,5]}
+{"wait":{"present":{"role":"text","name":"Program","within":{"role":"dialog","name":"Edit action"}}},"message":"Program"}
+{"click":{"role":"text","name":"Program","within":{"role":"dialog","name":"Edit action"}}}
+{"key":"ctrl+a"}
+{"type":"false"}
+{"wait":{"text":{"target":{"role":"text","name":"Program","within":{"role":"dialog","name":"Edit action"}},"text":"false"}},"message":"Program text"}
+{"key":"Escape"}
+{"wait":{"absent":{"role":"dialog","name":"Edit action"}},"message":"Escape to discard the edit"}
+{"fs":{"path":"$config/strata/actions/batch-rename/action.toml","toml_like":"saved"},"timeout_ms":0}
+{"activate":{"role":"button","name":"Close settings"}}
+{"wait":{"absent":{"role":"button","name":"Close settings"}},"message":"Settings to close"}
+{"click":{"entry":"todo.txt"},"button":3}
+{"wait":{"menu_items":{}},"message":"the context menu for 'todo.txt'"}
+{"expect":{"menu_items":{"contains":["Batch rename"]}}}
+{"key":"Escape"}
+{"wait":{"menu_items":null},"message":"the menu to close"}

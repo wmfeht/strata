@@ -19,7 +19,7 @@ use crate::{
     fs_helpers::{check_png, percent_decoded},
     peers,
     process::{spawn, terminate},
-    variables::python,
+    variables::PYTHON,
 };
 
 /// `services::remote_download::DOWNLOAD_PREFIX`; only such directories may be discarded.
@@ -277,7 +277,7 @@ pub(crate) fn peer_step(
             }
             arguments.extend(step.foreign.paths.iter().cloned());
             let source = peers::ForeignSource::start(
-                &python(),
+                PYTHON,
                 Path::new(REPOSITORY),
                 &arguments,
                 &context.launch.helper_environment(),

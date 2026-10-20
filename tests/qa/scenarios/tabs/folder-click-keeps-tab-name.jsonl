@@ -1,0 +1,30 @@
+{"scenario":"folder-click-keeps-tab-name","modes":["columns"],"layout":"us","mutation":null,"known_bug":null,"cost":{"columns":2.2},"quality":{"impact":2,"coverage":2,"criticality":2,"diagnostic":3,"score":8,"note":"Folder click holds tab title until release; unit tests pin title-hold logic, only real pointer-hold route covered here"}}
+{"fs":{"path":"documents/alpha","mkdir":true}}
+{"fs":{"path":"documents/beta","mkdir":true}}
+{"key":"ctrl+t"}
+{"key":"ctrl+l"}
+{"key":"ctrl+a"}
+{"type":"$fixture/documents"}
+{"key":"Return"}
+{"wait":{"directory":"documents"},"message":"the browser to be working in 'documents'"}
+{"settle":{"pane":"documents"}}
+{"select":{"entry":"alpha"}}
+{"wait":{"directory":"alpha"},"message":"the browser to be working in 'alpha'"}
+{"settle":{"pane":"alpha"}}
+{"wait":{"state":{"target":{"role":"page tab","name":"alpha"},"selected":true}},"message":"active tab alpha"}
+{"set_scrollbar":"horizontal","value":0,"when":{"present":{"role":"scroll bar","states":["horizontal"]}}}
+{"settle":{"entry":"beta","dir":"documents"}}
+{"drag":{"from":{"entry":"beta","dir":"documents"},"to":{"entry":"beta","dir":"documents","part":"icon"}},"release":false}
+{"settle":{"entry":"beta","dir":"documents"}}
+{"wait":{"selected":["beta"],"dir":"documents"},"message":"the selection to become ['beta']"}
+{"expect":{"present":{"role":"page tab","name":"alpha","states":["selected"]}}}
+{"expect":{"absent":{"role":"page tab","name":"beta"}}}
+{"button_up":1}
+{"wait":{"state":{"target":{"role":"page tab","name":"beta"},"selected":true}},"message":"active tab beta"}
+{"wait":{"directory":"beta"},"message":"the browser to be working in 'beta'"}
+{"settle":{"pane":"beta"}}
+{"wait":{"selected":[],"dir":"beta"},"message":"the selection to become []"}
+{"key":"Left"}
+{"wait":{"present":{"role":"page tab","name":"documents","states":["selected"]}},"message":"parent tab name after deliberate keyboard focus"}
+{"key":"Right"}
+{"wait":{"state":{"target":{"role":"page tab","name":"beta"},"selected":true}},"message":"active tab beta"}

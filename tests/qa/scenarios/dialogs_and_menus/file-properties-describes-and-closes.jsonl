@@ -1,0 +1,41 @@
+{"scenario":"file-properties-describes-and-closes","modes":["columns"],"prefs":{"browser_mode":"columns"},"layout":"us","mutation":null,"known_bug":null,"variants":[{"id":"keyboard-menu-Escape","vars":{"case":"keyboard-menu-Escape"}},{"id":"pointer-menu-close-dialog","vars":{"case":"pointer-menu-Close dialog"}},{"id":"shortcut-backdrop","vars":{"case":"shortcut-backdrop"}},{"id":"pointer-menu-Rename","vars":{"case":"pointer-menu-Rename"}}],"cost":{"columns-keyboard-menu-Escape":1.3,"columns-pointer-menu-close-dialog":1.3,"columns-shortcut-backdrop":1.0,"columns-pointer-menu-Rename":1.3},"quality":{"impact":2,"coverage":3,"criticality":3,"diagnostic":3,"score":20,"note":"File Properties from child-column keyboard and pointer menus describes file, hides Pin, closes by Escape/Close/backdrop; Rename hand-off overlaps filtered-properties-rename-inline"}}
+{"fs":{"path":"documents/readme.md","write":"Nested fixture\n"}}
+{"select":{"entry":"documents"}}
+{"wait":{"directory":"documents"},"message":"the browser to be working in 'documents'"}
+{"settle":{"pane":"documents"}}
+{"select":{"entry":"readme.md","dir":"documents"}}
+{"wait":{"focused":"readme.md"},"message":"keyboard focus to reach 'readme.md'"}
+{"key":"shift+F10","variants":["keyboard-menu-Escape"]}
+{"wait":{"menu_items":{}},"message":"the child-column item menu","variants":["keyboard-menu-Escape"]}
+{"key":"Home","variants":["keyboard-menu-Escape"]}
+{"keys_until":{"state":{"target":{"menu_item":"Properties"},"focused":true}},"keys":["Down"],"times":30,"check_first":true,"variants":["keyboard-menu-Escape"]}
+{"expect":{"state":{"target":{"menu_item":"Properties"},"focused":true}},"variants":["keyboard-menu-Escape"]}
+{"key":"Return","variants":["keyboard-menu-Escape"]}
+{"wait":{"dialog":true},"message":"a dialog to appear","variants":["keyboard-menu-Escape"]}
+{"key":"alt+Return","variants":["shortcut-backdrop"]}
+{"wait":{"dialog":true},"message":"a dialog to appear","variants":["shortcut-backdrop"]}
+{"click":{"entry":"readme.md","dir":"documents"},"button":3,"variants":["pointer-menu-close-dialog","pointer-menu-Rename"]}
+{"wait":{"menu_items":{}},"message":"the context menu for 'readme.md'","variants":["pointer-menu-close-dialog","pointer-menu-Rename"]}
+{"wait":{"present":{"menu_item":"Properties"}},"message":"the menu item 'Properties'","variants":["pointer-menu-close-dialog","pointer-menu-Rename"]}
+{"settle":{"menu_item":"Properties"},"variants":["pointer-menu-close-dialog","pointer-menu-Rename"]}
+{"click":{"menu_item":"Properties"},"variants":["pointer-menu-close-dialog","pointer-menu-Rename"]}
+{"wait":{"menu_items":null},"message":"the menu to close","variants":["pointer-menu-close-dialog","pointer-menu-Rename"]}
+{"wait":{"dialog":true},"message":"a dialog to appear","variants":["pointer-menu-close-dialog","pointer-menu-Rename"]}
+{"expect":{"mentions":{"target":{"dialog":true},"text":"documents/readme.md"}},"message":"the dialog should describe the child file"}
+{"expect":{"absent":{"role":"button","name":"Pin","within":{"dialog":true}}}}
+{"expect":{"absent":{"role":"button","name":"Unpin","within":{"dialog":true}}}}
+{"key":"Escape","variants":["keyboard-menu-Escape"]}
+{"click":{"window":true},"at":[5,5],"variants":["shortcut-backdrop"]}
+{"click":{"dialog_button":"Close dialog"},"variants":["pointer-menu-close-dialog"]}
+{"click":{"dialog_button":"Rename"},"variants":["pointer-menu-Rename"]}
+{"wait":{"dialog":null},"message":"Properties to close"}
+{"wait":{"field":{}},"message":"an editable field to take focus","variants":["pointer-menu-Rename"]}
+{"expect":{"field":{"text":"readme.md"}},"message":"Properties must hand focus to the rename editor","variants":["pointer-menu-Rename"]}
+{"key":"Escape","variants":["pointer-menu-Rename"]}
+{"wait":{"focused":"readme.md"},"message":"keyboard focus to reach 'readme.md'"}
+{"wait":{"selected":["readme.md"],"dir":"documents"},"message":"the selection to become ['readme.md']"}
+{"key":"Up"}
+{"wait":{"focused":"notes.txt"},"message":"keyboard focus to reach 'notes.txt'"}
+{"wait":{"selected":["notes.txt"],"dir":"documents"},"message":"the selection to become ['notes.txt']"}
+{"fs":{"path":"documents/readme.md","text":"Nested fixture\n"},"timeout_ms":0}
+{"fs":{"path":"readme.md","text":"# Fixture\n"},"timeout_ms":0}

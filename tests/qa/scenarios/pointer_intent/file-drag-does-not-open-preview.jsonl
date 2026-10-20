@@ -1,0 +1,9 @@
+{"scenario":"file-drag-does-not-open-preview","modes":["columns","icons","list"],"prefs":{"single_click_previews":true},"layout":"us","mutation":null,"known_bug":null,"variants":[{"id":"icon","vars":{"origin":"icon"}},{"id":"name","vars":{"origin":"name"}}],"cost":{"columns-icon":0.7,"icons-icon":0.6,"list-icon":0.6,"columns-name":0.7,"icons-name":0.6,"list-name":0.6},"quality":{"impact":2,"coverage":3,"criticality":4,"diagnostic":4,"score":28,"note":"held press and drag threshold keep preview closed for file drags; only QA scenario covering this, drop is covered by drag-file-onto-folder"}}
+{"drag":{"from":{"entry":"todo.txt"},"to":{"entry":"archive"}},"release":false,"after_press":[{"wait":{"entry":"todo.txt"},"message":"the entry 'todo.txt' to appear"},{"expect":{"preview":null},"message":"a held press must not open a preview"}],"variants":["icon"]}
+{"drag":{"from":{"entry":"todo.txt","part":"label"},"to":{"entry":"archive"}},"release":false,"after_press":[{"wait":{"entry":"todo.txt"},"message":"the entry 'todo.txt' to appear"},{"expect":{"preview":null},"message":"a held press must not open a preview"}],"modes":["icons"],"variants":["name"]}
+{"drag":{"from":{"entry":"todo.txt","part":"label"},"from_at":[4,"50%"],"to":{"entry":"archive"}},"release":false,"after_press":[{"wait":{"entry":"todo.txt"},"message":"the entry 'todo.txt' to appear"},{"expect":{"preview":null},"message":"a held press must not open a preview"}],"modes":["columns","list"],"variants":["name"]}
+{"expect":{"preview":null},"message":"crossing the drag threshold must suppress preview"}
+{"button_up":1}
+{"fs":{"path":"archive/todo.txt","exists":true},"message":"the file drop"}
+{"fs":{"path":"todo.txt","exists":false},"timeout_ms":0}
+{"expect":{"preview":null}}

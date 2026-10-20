@@ -76,7 +76,7 @@ class QaDriveMatchesTheRunner(unittest.TestCase):
                 self.assertEqual(int(drive_value(constant.lower())), runner_seconds(constant))
 
     def test_the_fixture_directory_is_named_as_the_runners(self):
-        match = re.search(r'\(None, None\) => fixture\.prefix\("([^"]+)"\)', RUNNER)
+        match = re.search(r'None => fixture\.prefix\("([^"]+)"\)', RUNNER)
         self.assertIsNotNone(match, "tests/qa.rs no longer names its fresh fixture")
         self.assertEqual(drive_value("fixture_prefix"), match.group(1))
 

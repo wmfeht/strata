@@ -1,7 +1,0 @@
-{"scenario":"drop-keeps-selection-at-destination","modes":["columns"],"prefs":{"open_folder_after_drop":true},"layout":"us","twin":"tests/e2e/scenarios/test_drag_and_drop.py::test_drop_keeps_selection_only_at_destination","mutation":null,"known_bug":null,"cost":{"columns":1.1},"quality":{"impact":3,"coverage":2,"criticality":3,"diagnostic":4,"score":14,"note":"Move-drop leaves only the dropped file selected in destination; copy route covered by ctrl-drag-copies-keeps-selection unselected-open"}}
-{"select":{"entry":"todo.txt"}}
-{"drag":{"from":{"entry":"todo.txt"},"to":{"entry":"archive"}}}
-{"fs":{"path":"archive/todo.txt","exists":true},"message":"the dragged file to arrive in archive"}
-{"wait":{"entry_gone":"todo.txt","dir":"$root"},"message":"the entry 'todo.txt' to disappear"}
-{"wait":{"selected":["todo.txt"],"dir":"archive"},"message":"the selection to become ['todo.txt']"}
-{"expect":{"all_selected":["todo.txt"]}}

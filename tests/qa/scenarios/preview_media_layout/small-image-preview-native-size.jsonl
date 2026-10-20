@@ -1,0 +1,4 @@
+{"scenario":"small-image-preview-native-size","modes":["columns"],"layout":"us","mutation":null,"known_bug":null,"tree":{},"setup":[{"fs":{"path":"small.png","image":{"width":80,"height":40,"rgb":[0,128,0]}}},{"fs":{"path":"small.png","thumbnail":{"cache":"$cache/thumbnails/large","width":256,"height":128,"rgb":[0,0,255],"mode":"700"}}}],"cost":{"columns":0.3},"quality":{"impact":2,"coverage":1,"criticality":2,"diagnostic":4,"score":0,"note":"Small image capped at 2x native size; only rendered-bounds (geometry) checks, and no unit test pins fitted_size MAX_UPSCALE"}}
+{"select_with_keyboard":"small.png"}
+{"key":"space"}
+{"wait":{"largest_image":{"within":{"preview":true},"wider_than":40,"size":[160,80]}},"never":{"largest_image":{"within":{"preview":true},"wider_than":40,"exceeds":[160,80]}},"message":"the native image rendered at no more than twice its original size"}

@@ -7,7 +7,7 @@ use std::{
 };
 
 use crate::{
-    IGNORABLE_STATE, REPOSITORY,
+    REPOSITORY,
     fixture::manifest,
     harness,
     scenario::{
@@ -15,7 +15,7 @@ use crate::{
         scenario_files, scenario_name,
     },
     steps::run_steps,
-    variables::{placeholders, run_name, runs, twin, variables},
+    variables::{placeholders, run_name, runs, variables},
 };
 
 pub(crate) fn every_scenario_file_is_planned_and_well_formed() {
@@ -53,7 +53,6 @@ pub(crate) fn every_scenario_file_is_planned_and_well_formed() {
         "the harness should plan one test per scenario run"
     );
     let manifest = manifest();
-    let mut twins = BTreeMap::new();
     for (name, path, scenario) in &scenarios {
         let folder = path
             .parent()
@@ -62,37 +61,13 @@ pub(crate) fn every_scenario_file_is_planned_and_well_formed() {
             .unwrap_or_default()
             .to_owned();
         let header = &scenario.header;
-        if let Err(error) = check_folder(&folder, header) {
+        if let Err(error) = check_folder(&folder) {
             panic!("{name}: {error}");
-        }
-        for run in runs(header) {
-            let Some(node) = twin(header, &run) else {
-                continue;
-            };
-            let (file, test) = node.split_once("::").unwrap_or((&node, ""));
-            let function = test.split('[').next().unwrap_or_default();
-            let source = fs::read_to_string(Path::new(REPOSITORY).join(file)).unwrap_or_default();
-            assert!(
-                !function.is_empty() && source.contains(&format!("def {function}(")),
-                "{name}/{}: the twin {node} should name a test function in its file",
-                run.label
-            );
-            assert!(
-                !node.contains('$'),
-                "{name}/{}: the twin {node} has an unknown variable",
-                run.label
-            );
-            if let Some(other) = twins.insert(node.clone(), format!("{name}/{}", run.label)) {
-                panic!(
-                    "{name}/{} and {other} both claim the twin {node}",
-                    run.label
-                );
-            }
         }
         if let Some(mutation) = &header.mutation {
             assert!(
                 Path::new(REPOSITORY)
-                    .join(format!("tests/e2e/mutations/{mutation}.patch"))
+                    .join(format!("tests/qa/mutations/{mutation}.patch"))
                     .is_file(),
                 "{name}: the mutation {mutation} should exist"
             );
@@ -118,7 +93,7 @@ pub(crate) fn a_known_bug_must_name_a_step_line_that_can_fail() {
         fs::write(
             &path,
             format!(
-                "{{\"scenario\":\"example\",\"modes\":[\"columns\"],\"twin\":\"x\",\"mutation\":null{marker}}}\n\
+                "{{\"scenario\":\"example\",\"modes\":[\"columns\"],\"mutation\":null{marker}}}\n\
                  {{\"layout\":\"ru\"}}\n\
                  {{\"wait\":{{\"focused\":\"a\"}}}}\n\
                  {{\"key\":\"Escape\",\"when\":{{\"dialog\":true}}}}\n\
@@ -146,101 +121,6 @@ pub(crate) fn a_known_bug_must_name_a_step_line_that_can_fail() {
     }
 }
 
-pub(crate) fn state_parity_may_ignore_only_distinct_compared_keys() {
-    let directory = tempfile::tempdir().expect("a scratch directory");
-    let path = directory.path().join("example.jsonl");
-    let load_with = |mutation: &str, ignore: &str| {
-        fs::write(
-            &path,
-            format!(
-                "{{\"scenario\":\"example\",\"modes\":[\"columns\"],\"twin\":\"x\",\"mutation\":{mutation},\"known_bug\":null,\"state_parity_ignore\":{ignore}}}\n\
-                 {{\"wait\":{{\"focused\":\"a\"}}}}\n"
-            ),
-        )
-        .expect("the scenario should be written");
-        load_scenario(&path).map(|_| ())
-    };
-    let load = |ignore: &str| load_with("null", ignore);
-    assert!(load(r#"["focused","panes.focused"]"#).is_ok());
-    assert!(
-        load_with(r#""clipboard""#, r#"["focused"]"#).is_err(),
-        "a scenario with a mutation keeps every state check"
-    );
-    assert!(load_with(r#""clipboard""#, "[]").is_ok());
-    assert!(
-        load(r#"["view_mode","directory","panes","focused","focused_pane","dialog"]"#).is_err(),
-        "ignoring every compared key compares nothing"
-    );
-    assert!(load(r#"["view_mode","directory","panes.selected","panes.focused","focused","focused_pane","dialog"]"#).is_ok());
-    assert!(load(r#"["*"]"#).is_ok(), "the whole state, alone");
-    assert!(load_with(r#""clipboard""#, r#"["*"]"#).is_err());
-    for bad in [
-        r#"["menu"]"#,
-        r#"["panes.name"]"#,
-        r#"["focused","focused"]"#,
-        r#""focused""#,
-        r#"["*","focused"]"#,
-    ] {
-        assert!(load(bad).is_err(), "{bad} should be rejected");
-    }
-    let python = fs::read_to_string(Path::new(REPOSITORY).join("scripts/qa_parity_scenarios.py"))
-        .expect("qa_parity_scenarios.py should be readable");
-    for key in IGNORABLE_STATE {
-        assert!(
-            python.contains(&format!("\"{key}\"")),
-            "qa_parity_scenarios.py should accept {key} too"
-        );
-    }
-}
-
-pub(crate) fn input_parity_may_ignore_only_named_positions_of_one_run() {
-    let directory = tempfile::tempdir().expect("a scratch directory");
-    let path = directory.path().join("example.jsonl");
-    let load_with = |mutation: &str, ignore: &str| {
-        fs::write(
-            &path,
-            format!(
-                "{{\"scenario\":\"example\",\"modes\":[\"columns\"],\"twin\":\"x[$v]\",\"mutation\":{mutation},\"known_bug\":null,\
-                 \"variants\":[{{\"id\":\"wheel\",\"vars\":{{\"v\":\"w\"}}}},{{\"id\":\"reset\",\"vars\":{{\"v\":\"r\"}}}}],\
-                 \"input_parity_ignore\":{ignore}}}\n\
-                 {{\"wait\":{{\"focused\":\"a\"}}}}\n"
-            ),
-        )
-        .expect("the scenario should be written");
-        load_scenario(&path).map(|_| ())
-    };
-    let load = |ignore: &str| load_with("null", ignore);
-    assert!(load(r#"[{"run":"columns-wheel","events":[{"position":19,"event":"button 1 down"},{"position":20,"event":"button 1 up"}]}]"#).is_ok());
-    assert!(load(r#"[{"run":"columns-wheel","events":[{"position":3,"event":"key down"},{"position":4,"event":"key up"},{"position":9,"event":"typed digits"}]}]"#).is_ok());
-    assert!(load("[]").is_ok());
-    assert!(
-        load_with(
-            r#""quick-preview""#,
-            r#"[{"run":"columns-wheel","positions":[19]}]"#
-        )
-        .is_err(),
-        "a scenario with a mutation keeps every input check"
-    );
-    for bad in [
-        r#"[{"run":"columns","events":[{"position":1,"event":"button 1 down"}]}]"#,
-        r#"[{"run":"columns-wheel","events":[]}]"#,
-        r#"[{"run":"columns-wheel","events":[{"position":0,"event":"button 1 down"}]}]"#,
-        r#"[{"run":"columns-wheel","events":[{"position":2,"event":"button 1 down"},{"position":2,"event":"button 1 up"}]}]"#,
-        r#"[{"run":"columns-wheel","events":[{"position":2,"event":"key 37 down"}]}]"#,
-        r#"[{"run":"columns-wheel","events":[{"position":2}]}]"#,
-        r#"[{"run":"columns-wheel","positions":[19]}]"#,
-        r#"[{"run":"columns-wheel","events":[{"position":1,"event":"button 1 down"}]},{"run":"columns-wheel","events":[{"position":2,"event":"button 1 up"}]}]"#,
-    ] {
-        assert!(load(bad).is_err(), "{bad} should be rejected");
-    }
-    let python = fs::read_to_string(Path::new(REPOSITORY).join("scripts/qa_parity_scenarios.py"))
-        .expect("qa_parity_scenarios.py should be readable");
-    assert!(
-        python.contains("def input_parity_ignore("),
-        "qa_parity_scenarios.py should read input_parity_ignore too"
-    );
-}
-
 pub(crate) fn a_skipped_scenario_names_a_reason_and_no_mutation_or_known_bug() {
     let directory = tempfile::tempdir().expect("a scratch directory");
     let path = directory.path().join("example.jsonl");
@@ -248,7 +128,7 @@ pub(crate) fn a_skipped_scenario_names_a_reason_and_no_mutation_or_known_bug() {
         fs::write(
             &path,
             format!(
-                "{{\"scenario\":\"example\",\"modes\":[\"columns\"],\"twin\":\"x\",{extra}}}\n\
+                "{{\"scenario\":\"example\",\"modes\":[\"columns\"],{extra}}}\n\
                  {{\"key\":\"Escape\"}}\n"
             ),
         )
@@ -275,7 +155,7 @@ pub(crate) fn a_cost_gives_each_run_label_a_positive_number() {
         fs::write(
             &path,
             format!(
-                "{{\"scenario\":\"example\",\"modes\":[\"columns\",\"list\"],\"twin\":\"x[$mode]\",\
+                "{{\"scenario\":\"example\",\"modes\":[\"columns\",\"list\"],\
                  \"mutation\":null,\"known_bug\":null{cost}}}\n{{\"key\":\"Escape\"}}\n"
             ),
         )
@@ -302,7 +182,7 @@ pub(crate) fn a_cost_gives_each_run_label_a_positive_number() {
     }
 }
 
-pub(crate) fn a_scenario_without_a_twin_lives_in_a_feature_folder_and_names_its_runs_alone() {
+pub(crate) fn a_scenario_lives_in_a_feature_folder_and_names_its_runs() {
     let directory = tempfile::tempdir().expect("a scratch directory");
     let path = directory.path().join("example.jsonl");
     let load = |header: &str| {
@@ -313,16 +193,16 @@ pub(crate) fn a_scenario_without_a_twin_lives_in_a_feature_folder_and_names_its_
     let names = |scenario: &Scenario| -> Vec<String> {
         runs(&scenario.header)
             .iter()
-            .map(|run| run_name("example", &scenario.header, run))
+            .map(|run| run_name("example", run))
             .collect()
     };
 
-    let alone =
+    let scenario =
         load(r#"{"scenario":"example","modes":["columns","list"],"variants":[{"id":"us"}]}"#)
-            .expect("a scenario without a twin should load");
-    assert_eq!(names(&alone), ["example/columns-us", "example/list-us"]);
-    assert_eq!(check_folder("hidden_files", &alone.header), Ok(()));
-    assert_eq!(check_folder("tabs", &alone.header), Ok(()));
+            .expect("the scenario should load");
+    assert_eq!(names(&scenario), ["example/columns-us", "example/list-us"]);
+    assert_eq!(check_folder("hidden_files"), Ok(()));
+    assert_eq!(check_folder("tabs"), Ok(()));
     for folder in [
         "test_tabs",
         "Hidden_files",
@@ -332,31 +212,11 @@ pub(crate) fn a_scenario_without_a_twin_lives_in_a_feature_folder_and_names_its_
         "",
     ] {
         assert!(
-            check_folder(folder, &alone.header).is_err(),
+            check_folder(folder).is_err(),
             "{folder:?} should be rejected"
         );
     }
 
-    let ported = load(
-        r#"{"scenario":"example","modes":["columns"],"twin":"tests/e2e/scenarios/test_tabs.py::test_x[$mode]"}"#,
-    )
-    .expect("a scenario with a twin should load");
-    assert_eq!(
-        names(&ported),
-        ["example/columns (twin tests/e2e/scenarios/test_tabs.py::test_x[columns])"]
-    );
-    assert_eq!(check_folder("test_tabs", &ported.header), Ok(()));
-    assert!(check_folder("tabs", &ported.header).is_err());
-
-    for bad in [
-        r#"{"scenario":"example","modes":["columns"],"variants":[{"id":"us","twin":"x"}]}"#,
-        r#"{"scenario":"example","modes":["columns"],"twin":null,"variants":[{"id":"us","twin":"x"}]}"#,
-        r#"{"scenario":"example","modes":["columns"],"mutation":"clipboard"}"#,
-        r#"{"scenario":"example","modes":["columns"],"state_parity_ignore":["focused"]}"#,
-        r#"{"scenario":"example","modes":["columns"],"input_parity_ignore":[{"run":"columns","events":[{"position":1,"event":"button 1 down"}]}]}"#,
-    ] {
-        assert!(load(bad).is_err(), "{bad} should be rejected");
-    }
     let renamed = directory.path().join("Example_one.jsonl");
     fs::write(
         &renamed,

@@ -1,0 +1,242 @@
+{"scenario":"committed-rename-stays-visible","modes":["columns"],"layout":"us","mutation":null,"known_bug":null,"variants":[{"id":"Columns-a-final-existing","vars":{"case":"Columns-a-final-existing"}},{"id":"Columns-a-final-new","vars":{"case":"Columns-a-final-new"}},{"id":"Columns-m-entry-078a-existing","vars":{"case":"Columns-m-entry-078a-existing"}},{"id":"Columns-m-entry-078a-new","vars":{"case":"Columns-m-entry-078a-new"}},{"id":"Columns-zz-final-existing","vars":{"case":"Columns-zz-final-existing"}},{"id":"Columns-zz-final-new","vars":{"case":"Columns-zz-final-new"}},{"id":"List-a-final-existing","vars":{"case":"List-a-final-existing"}},{"id":"List-a-final-new","vars":{"case":"List-a-final-new"}},{"id":"List-m-entry-078a-existing","vars":{"case":"List-m-entry-078a-existing"}},{"id":"List-m-entry-078a-new","vars":{"case":"List-m-entry-078a-new"}},{"id":"List-zz-final-existing","vars":{"case":"List-zz-final-existing"}},{"id":"List-zz-final-new","vars":{"case":"List-zz-final-new"}}],"cost":{"columns-Columns-a-final-existing":1.7,"columns-Columns-a-final-new":2.1,"columns-Columns-m-entry-078a-existing":1.8,"columns-Columns-m-entry-078a-new":2.3,"columns-Columns-zz-final-existing":1.7,"columns-Columns-zz-final-new":2.2,"columns-List-a-final-existing":1.8,"columns-List-a-final-new":2.2,"columns-List-m-entry-078a-existing":1.9,"columns-List-m-entry-078a-new":2.3,"columns-List-zz-final-existing":1.8,"columns-List-zz-final-new":2.2},"quality":{"impact":3,"coverage":4,"criticality":4,"diagnostic":3,"score":45,"note":"Enter-committed rename keeps the moved entry selected and visible in both views; airy-committed-rename-visible is a subset (zz-final)"}}
+{"open_menu":{"role":"toggle button","name":"Appearance"},"until":{"present":{"role":"radio menu item","name":"Columns"}},"message":"the appearance menu to open","variants":["Columns-a-final-existing","Columns-a-final-new","Columns-m-entry-078a-existing","Columns-m-entry-078a-new","Columns-zz-final-existing","Columns-zz-final-new"]}
+{"wait":{"present":{"role":"radio menu item","name":"Columns"}},"message":"the Columns option","variants":["Columns-a-final-existing","Columns-a-final-new","Columns-m-entry-078a-existing","Columns-m-entry-078a-new","Columns-zz-final-existing","Columns-zz-final-new"]}
+{"click":{"role":"radio menu item","name":"Columns"},"variants":["Columns-a-final-existing","Columns-a-final-new","Columns-m-entry-078a-existing","Columns-m-entry-078a-new","Columns-zz-final-existing","Columns-zz-final-new"]}
+{"wait":{"view_mode":"Columns"},"message":"the browser to switch to the Columns view","variants":["Columns-a-final-existing","Columns-a-final-new","Columns-m-entry-078a-existing","Columns-m-entry-078a-new","Columns-zz-final-existing","Columns-zz-final-new"]}
+{"open_menu":{"role":"toggle button","name":"Appearance"},"until":{"present":{"role":"radio menu item","name":"Columns"}},"message":"the appearance menu to open","variants":["List-a-final-existing","List-a-final-new","List-m-entry-078a-existing","List-m-entry-078a-new","List-zz-final-existing","List-zz-final-new"]}
+{"wait":{"present":{"role":"radio menu item","name":"List"}},"message":"the List option","variants":["List-a-final-existing","List-a-final-new","List-m-entry-078a-existing","List-m-entry-078a-new","List-zz-final-existing","List-zz-final-new"]}
+{"click":{"role":"radio menu item","name":"List"},"variants":["List-a-final-existing","List-a-final-new","List-m-entry-078a-existing","List-m-entry-078a-new","List-zz-final-existing","List-zz-final-new"]}
+{"wait":{"view_mode":"List"},"message":"the browser to switch to the List view","variants":["List-a-final-existing","List-a-final-new","List-m-entry-078a-existing","List-m-entry-078a-new","List-zz-final-existing","List-zz-final-new"]}
+{"fs":{"path":"rename-target","mkdir":true}}
+{"fs":{"path":"rename-target/m-entry-{000..079}","write":"body\n"}}
+{"remember":{"entry":"rename-target"},"as":"listed"}
+{"key":"F5"}
+{"wait":{"replaced":{"target":{"entry":"rename-target"},"since":"listed"}},"message":"F5's reload to rebuild the row"}
+{"wait":{"entry":"rename-target"},"message":"the entry 'rename-target' to appear"}
+{"select_with_keyboard":"rename-target"}
+{"key":"Return"}
+{"wait":{"directory":"rename-target"},"message":"the browser to be working in 'rename-target'"}
+{"settle":{"pane":"rename-target"}}
+{"key":"Home"}
+{"key":"End"}
+{"wait":{"selected":["m-entry-079"],"dir":"rename-target"},"message":"the selection to become ['m-entry-079']"}
+{"click":{"container":"rename-target"},"button":3,"at":[1,"50%"],"variants":["Columns-a-final-new","Columns-m-entry-078a-new","Columns-zz-final-new","List-a-final-new","List-m-entry-078a-new","List-zz-final-new"]}
+{"wait":{"present":{"menu_item":"New File"}},"message":"the menu item 'New File'","variants":["Columns-a-final-new","Columns-m-entry-078a-new","Columns-zz-final-new","List-a-final-new","List-m-entry-078a-new","List-zz-final-new"]}
+{"settle":{"menu_item":"New File"},"variants":["Columns-a-final-new","Columns-m-entry-078a-new","Columns-zz-final-new","List-a-final-new","List-m-entry-078a-new","List-zz-final-new"]}
+{"click":{"menu_item":"New File"},"variants":["Columns-a-final-new","Columns-m-entry-078a-new","Columns-zz-final-new","List-a-final-new","List-m-entry-078a-new","List-zz-final-new"]}
+{"wait":{"menu_items":null},"message":"the menu to close","variants":["Columns-a-final-new","Columns-m-entry-078a-new","Columns-zz-final-new","List-a-final-new","List-m-entry-078a-new","List-zz-final-new"]}
+{"fs":{"path":"rename-target/new file","exists":true},"message":"the new item on disk","variants":["Columns-a-final-new","Columns-m-entry-078a-new","Columns-zz-final-new","List-a-final-new","List-m-entry-078a-new","List-zz-final-new"]}
+{"key":"F2","variants":["Columns-a-final-existing","Columns-m-entry-078a-existing","Columns-zz-final-existing","List-a-final-existing","List-m-entry-078a-existing","List-zz-final-existing"]}
+{"wait":{"field":{}},"message":"an editable field to take focus"}
+{"remember":{"field":true},"as":"field"}
+{"wait":{"field":{"of":"field","text":"m-entry-079"}},"message":"the original name in the editor","variants":["Columns-a-final-existing","Columns-m-entry-078a-existing","Columns-zz-final-existing","List-a-final-existing","List-m-entry-078a-existing","List-zz-final-existing"]}
+{"wait":{"field":{"of":"field","text":"new file"}},"message":"the original name in the editor","variants":["Columns-a-final-new","Columns-m-entry-078a-new","Columns-zz-final-new","List-a-final-new","List-m-entry-078a-new","List-zz-final-new"]}
+{"wait":{"inside":{"target":{"field":"field"},"of":{"container":"rename-target"},"axis":"y"}},"message":"the initial editor inside the viewport without scrolling"}
+{"settle":{"field":"field"}}
+{"expect":{"inside":{"target":{"field":"field"},"of":{"container":"rename-target"},"axis":"y"}}}
+{"fs":{"path":"rename-target/m-entry-079","is":"file"},"timeout_ms":0,"variants":["Columns-a-final-existing","Columns-m-entry-078a-existing","Columns-zz-final-existing","List-a-final-existing","List-m-entry-078a-existing","List-zz-final-existing"]}
+{"fs":{"path":"rename-target/new file","is":"file"},"timeout_ms":0,"variants":["Columns-a-final-new","Columns-m-entry-078a-new","Columns-zz-final-new","List-a-final-new","List-m-entry-078a-new","List-zz-final-new"]}
+{"type":"a-final","variants":["Columns-a-final-existing"]}
+{"wait":{"field":{"of":"field","text":"a-final"}},"message":"the committed name in the editor","variants":["Columns-a-final-existing"]}
+{"key":"Return","variants":["Columns-a-final-existing"]}
+{"fs":{"path":"rename-target/a-final","exists":true},"message":"the renamed item on disk","variants":["Columns-a-final-existing"]}
+{"wait":{"entry_gone":"m-entry-079","dir":"rename-target"},"message":"the entry 'm-entry-079' to disappear","variants":["Columns-a-final-existing"]}
+{"fs":{"path":"rename-target/a-final","text":"body\n"},"timeout_ms":0,"variants":["Columns-a-final-existing"]}
+{"fs":{"path":"rename-target/m-entry-079","exists":false},"timeout_ms":0,"variants":["Columns-a-final-existing"]}
+{"wait":{"all":[{"state":{"target":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"message":"a-final selected and fully inside the viewport","variants":["Columns-a-final-existing"]}
+{"settle":{"role":"panel","within":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}}},"variants":["Columns-a-final-existing"]}
+{"expect":{"all":[{"state":{"target":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"variants":["Columns-a-final-existing"]}
+{"key":"Down","variants":["Columns-a-final-existing"]}
+{"wait":{"selected":["m-entry-000"],"dir":"rename-target"},"message":"the selection to become ['m-entry-000']","variants":["Columns-a-final-existing"]}
+{"key":"Up","variants":["Columns-a-final-existing"]}
+{"wait":{"selected":["a-final"],"dir":"rename-target"},"message":"the selection to become ['a-final']","variants":["Columns-a-final-existing"]}
+{"wait":{"all":[{"state":{"target":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"message":"a-final selected and fully inside the viewport","variants":["Columns-a-final-existing"]}
+{"settle":{"role":"panel","within":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}}},"variants":["Columns-a-final-existing"]}
+{"expect":{"all":[{"state":{"target":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"variants":["Columns-a-final-existing"]}
+{"type":"a-final","variants":["Columns-a-final-new"]}
+{"wait":{"field":{"of":"field","text":"a-final"}},"message":"the committed name in the editor","variants":["Columns-a-final-new"]}
+{"key":"Return","variants":["Columns-a-final-new"]}
+{"fs":{"path":"rename-target/a-final","exists":true},"message":"the renamed item on disk","variants":["Columns-a-final-new"]}
+{"wait":{"entry_gone":"new file","dir":"rename-target"},"message":"the entry 'new file' to disappear","variants":["Columns-a-final-new"]}
+{"fs":{"path":"rename-target/a-final","text":""},"timeout_ms":0,"variants":["Columns-a-final-new"]}
+{"fs":{"path":"rename-target/new file","exists":false},"timeout_ms":0,"variants":["Columns-a-final-new"]}
+{"wait":{"all":[{"state":{"target":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"message":"a-final selected and fully inside the viewport","variants":["Columns-a-final-new"]}
+{"settle":{"role":"panel","within":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}}},"variants":["Columns-a-final-new"]}
+{"expect":{"all":[{"state":{"target":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"variants":["Columns-a-final-new"]}
+{"key":"Down","variants":["Columns-a-final-new"]}
+{"wait":{"selected":["m-entry-000"],"dir":"rename-target"},"message":"the selection to become ['m-entry-000']","variants":["Columns-a-final-new"]}
+{"key":"Up","variants":["Columns-a-final-new"]}
+{"wait":{"selected":["a-final"],"dir":"rename-target"},"message":"the selection to become ['a-final']","variants":["Columns-a-final-new"]}
+{"wait":{"all":[{"state":{"target":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"message":"a-final selected and fully inside the viewport","variants":["Columns-a-final-new"]}
+{"settle":{"role":"panel","within":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}}},"variants":["Columns-a-final-new"]}
+{"expect":{"all":[{"state":{"target":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"variants":["Columns-a-final-new"]}
+{"type":"m-entry-078a","variants":["Columns-m-entry-078a-existing"]}
+{"wait":{"field":{"of":"field","text":"m-entry-078a"}},"message":"the committed name in the editor","variants":["Columns-m-entry-078a-existing"]}
+{"key":"Return","variants":["Columns-m-entry-078a-existing"]}
+{"fs":{"path":"rename-target/m-entry-078a","exists":true},"message":"the renamed item on disk","variants":["Columns-m-entry-078a-existing"]}
+{"wait":{"entry_gone":"m-entry-079","dir":"rename-target"},"message":"the entry 'm-entry-079' to disappear","variants":["Columns-m-entry-078a-existing"]}
+{"fs":{"path":"rename-target/m-entry-078a","text":"body\n"},"timeout_ms":0,"variants":["Columns-m-entry-078a-existing"]}
+{"fs":{"path":"rename-target/m-entry-079","exists":false},"timeout_ms":0,"variants":["Columns-m-entry-078a-existing"]}
+{"wait":{"all":[{"state":{"target":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"message":"m-entry-078a selected and fully inside the viewport","variants":["Columns-m-entry-078a-existing"]}
+{"settle":{"role":"panel","within":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}}},"variants":["Columns-m-entry-078a-existing"]}
+{"expect":{"all":[{"state":{"target":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"variants":["Columns-m-entry-078a-existing"]}
+{"key":"Up","variants":["Columns-m-entry-078a-existing"]}
+{"wait":{"selected":["m-entry-078"],"dir":"rename-target"},"message":"the selection to become ['m-entry-078']","variants":["Columns-m-entry-078a-existing"]}
+{"key":"Down","variants":["Columns-m-entry-078a-existing"]}
+{"wait":{"selected":["m-entry-078a"],"dir":"rename-target"},"message":"the selection to become ['m-entry-078a']","variants":["Columns-m-entry-078a-existing"]}
+{"wait":{"all":[{"state":{"target":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"message":"m-entry-078a selected and fully inside the viewport","variants":["Columns-m-entry-078a-existing"]}
+{"settle":{"role":"panel","within":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}}},"variants":["Columns-m-entry-078a-existing"]}
+{"expect":{"all":[{"state":{"target":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"variants":["Columns-m-entry-078a-existing"]}
+{"type":"m-entry-078a","variants":["Columns-m-entry-078a-new"]}
+{"wait":{"field":{"of":"field","text":"m-entry-078a"}},"message":"the committed name in the editor","variants":["Columns-m-entry-078a-new"]}
+{"key":"Return","variants":["Columns-m-entry-078a-new"]}
+{"fs":{"path":"rename-target/m-entry-078a","exists":true},"message":"the renamed item on disk","variants":["Columns-m-entry-078a-new"]}
+{"wait":{"entry_gone":"new file","dir":"rename-target"},"message":"the entry 'new file' to disappear","variants":["Columns-m-entry-078a-new"]}
+{"fs":{"path":"rename-target/m-entry-078a","text":""},"timeout_ms":0,"variants":["Columns-m-entry-078a-new"]}
+{"fs":{"path":"rename-target/new file","exists":false},"timeout_ms":0,"variants":["Columns-m-entry-078a-new"]}
+{"wait":{"all":[{"state":{"target":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"message":"m-entry-078a selected and fully inside the viewport","variants":["Columns-m-entry-078a-new"]}
+{"settle":{"role":"panel","within":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}}},"variants":["Columns-m-entry-078a-new"]}
+{"expect":{"all":[{"state":{"target":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"variants":["Columns-m-entry-078a-new"]}
+{"key":"Up","variants":["Columns-m-entry-078a-new"]}
+{"wait":{"selected":["m-entry-078"],"dir":"rename-target"},"message":"the selection to become ['m-entry-078']","variants":["Columns-m-entry-078a-new"]}
+{"key":"Down","variants":["Columns-m-entry-078a-new"]}
+{"wait":{"selected":["m-entry-078a"],"dir":"rename-target"},"message":"the selection to become ['m-entry-078a']","variants":["Columns-m-entry-078a-new"]}
+{"wait":{"all":[{"state":{"target":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"message":"m-entry-078a selected and fully inside the viewport","variants":["Columns-m-entry-078a-new"]}
+{"settle":{"role":"panel","within":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}}},"variants":["Columns-m-entry-078a-new"]}
+{"expect":{"all":[{"state":{"target":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"variants":["Columns-m-entry-078a-new"]}
+{"type":"zz-final","variants":["Columns-zz-final-existing"]}
+{"wait":{"field":{"of":"field","text":"zz-final"}},"message":"the committed name in the editor","variants":["Columns-zz-final-existing"]}
+{"key":"Return","variants":["Columns-zz-final-existing"]}
+{"fs":{"path":"rename-target/zz-final","exists":true},"message":"the renamed item on disk","variants":["Columns-zz-final-existing"]}
+{"wait":{"entry_gone":"m-entry-079","dir":"rename-target"},"message":"the entry 'm-entry-079' to disappear","variants":["Columns-zz-final-existing"]}
+{"fs":{"path":"rename-target/zz-final","text":"body\n"},"timeout_ms":0,"variants":["Columns-zz-final-existing"]}
+{"fs":{"path":"rename-target/m-entry-079","exists":false},"timeout_ms":0,"variants":["Columns-zz-final-existing"]}
+{"wait":{"all":[{"state":{"target":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"message":"zz-final selected and fully inside the viewport","variants":["Columns-zz-final-existing"]}
+{"settle":{"role":"panel","within":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}}},"variants":["Columns-zz-final-existing"]}
+{"expect":{"all":[{"state":{"target":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"variants":["Columns-zz-final-existing"]}
+{"key":"Up","variants":["Columns-zz-final-existing"]}
+{"wait":{"selected":["m-entry-078"],"dir":"rename-target"},"message":"the selection to become ['m-entry-078']","variants":["Columns-zz-final-existing"]}
+{"key":"Down","variants":["Columns-zz-final-existing"]}
+{"wait":{"selected":["zz-final"],"dir":"rename-target"},"message":"the selection to become ['zz-final']","variants":["Columns-zz-final-existing"]}
+{"wait":{"all":[{"state":{"target":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"message":"zz-final selected and fully inside the viewport","variants":["Columns-zz-final-existing"]}
+{"settle":{"role":"panel","within":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}}},"variants":["Columns-zz-final-existing"]}
+{"expect":{"all":[{"state":{"target":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"variants":["Columns-zz-final-existing"]}
+{"type":"zz-final","variants":["Columns-zz-final-new"]}
+{"wait":{"field":{"of":"field","text":"zz-final"}},"message":"the committed name in the editor","variants":["Columns-zz-final-new"]}
+{"key":"Return","variants":["Columns-zz-final-new"]}
+{"fs":{"path":"rename-target/zz-final","exists":true},"message":"the renamed item on disk","variants":["Columns-zz-final-new"]}
+{"wait":{"entry_gone":"new file","dir":"rename-target"},"message":"the entry 'new file' to disappear","variants":["Columns-zz-final-new"]}
+{"fs":{"path":"rename-target/zz-final","text":""},"timeout_ms":0,"variants":["Columns-zz-final-new"]}
+{"fs":{"path":"rename-target/new file","exists":false},"timeout_ms":0,"variants":["Columns-zz-final-new"]}
+{"wait":{"all":[{"state":{"target":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"message":"zz-final selected and fully inside the viewport","variants":["Columns-zz-final-new"]}
+{"settle":{"role":"panel","within":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}}},"variants":["Columns-zz-final-new"]}
+{"expect":{"all":[{"state":{"target":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"variants":["Columns-zz-final-new"]}
+{"key":"Up","variants":["Columns-zz-final-new"]}
+{"wait":{"selected":["m-entry-079"],"dir":"rename-target"},"message":"the selection to become ['m-entry-079']","variants":["Columns-zz-final-new"]}
+{"key":"Down","variants":["Columns-zz-final-new"]}
+{"wait":{"selected":["zz-final"],"dir":"rename-target"},"message":"the selection to become ['zz-final']","variants":["Columns-zz-final-new"]}
+{"wait":{"all":[{"state":{"target":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"message":"zz-final selected and fully inside the viewport","variants":["Columns-zz-final-new"]}
+{"settle":{"role":"panel","within":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}}},"variants":["Columns-zz-final-new"]}
+{"expect":{"all":[{"state":{"target":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"variants":["Columns-zz-final-new"]}
+{"type":"a-final","variants":["List-a-final-existing"]}
+{"wait":{"field":{"of":"field","text":"a-final"}},"message":"the committed name in the editor","variants":["List-a-final-existing"]}
+{"key":"Return","variants":["List-a-final-existing"]}
+{"fs":{"path":"rename-target/a-final","exists":true},"message":"the renamed item on disk","variants":["List-a-final-existing"]}
+{"wait":{"entry_gone":"m-entry-079","dir":"rename-target"},"message":"the entry 'm-entry-079' to disappear","variants":["List-a-final-existing"]}
+{"fs":{"path":"rename-target/a-final","text":"body\n"},"timeout_ms":0,"variants":["List-a-final-existing"]}
+{"fs":{"path":"rename-target/m-entry-079","exists":false},"timeout_ms":0,"variants":["List-a-final-existing"]}
+{"wait":{"all":[{"state":{"target":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"message":"a-final selected and fully inside the viewport","variants":["List-a-final-existing"]}
+{"settle":{"role":"panel","within":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}}},"variants":["List-a-final-existing"]}
+{"expect":{"all":[{"state":{"target":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"variants":["List-a-final-existing"]}
+{"key":"Down","variants":["List-a-final-existing"]}
+{"wait":{"selected":["m-entry-000"],"dir":"rename-target"},"message":"the selection to become ['m-entry-000']","variants":["List-a-final-existing"]}
+{"key":"Up","variants":["List-a-final-existing"]}
+{"wait":{"selected":["a-final"],"dir":"rename-target"},"message":"the selection to become ['a-final']","variants":["List-a-final-existing"]}
+{"wait":{"all":[{"state":{"target":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"message":"a-final selected and fully inside the viewport","variants":["List-a-final-existing"]}
+{"settle":{"role":"panel","within":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}}},"variants":["List-a-final-existing"]}
+{"expect":{"all":[{"state":{"target":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"variants":["List-a-final-existing"]}
+{"type":"a-final","variants":["List-a-final-new"]}
+{"wait":{"field":{"of":"field","text":"a-final"}},"message":"the committed name in the editor","variants":["List-a-final-new"]}
+{"key":"Return","variants":["List-a-final-new"]}
+{"fs":{"path":"rename-target/a-final","exists":true},"message":"the renamed item on disk","variants":["List-a-final-new"]}
+{"wait":{"entry_gone":"new file","dir":"rename-target"},"message":"the entry 'new file' to disappear","variants":["List-a-final-new"]}
+{"fs":{"path":"rename-target/a-final","text":""},"timeout_ms":0,"variants":["List-a-final-new"]}
+{"fs":{"path":"rename-target/new file","exists":false},"timeout_ms":0,"variants":["List-a-final-new"]}
+{"wait":{"all":[{"state":{"target":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"message":"a-final selected and fully inside the viewport","variants":["List-a-final-new"]}
+{"settle":{"role":"panel","within":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}}},"variants":["List-a-final-new"]}
+{"expect":{"all":[{"state":{"target":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"variants":["List-a-final-new"]}
+{"key":"Down","variants":["List-a-final-new"]}
+{"wait":{"selected":["m-entry-000"],"dir":"rename-target"},"message":"the selection to become ['m-entry-000']","variants":["List-a-final-new"]}
+{"key":"Up","variants":["List-a-final-new"]}
+{"wait":{"selected":["a-final"],"dir":"rename-target"},"message":"the selection to become ['a-final']","variants":["List-a-final-new"]}
+{"wait":{"all":[{"state":{"target":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"message":"a-final selected and fully inside the viewport","variants":["List-a-final-new"]}
+{"settle":{"role":"panel","within":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}}},"variants":["List-a-final-new"]}
+{"expect":{"all":[{"state":{"target":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"a-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"variants":["List-a-final-new"]}
+{"type":"m-entry-078a","variants":["List-m-entry-078a-existing"]}
+{"wait":{"field":{"of":"field","text":"m-entry-078a"}},"message":"the committed name in the editor","variants":["List-m-entry-078a-existing"]}
+{"key":"Return","variants":["List-m-entry-078a-existing"]}
+{"fs":{"path":"rename-target/m-entry-078a","exists":true},"message":"the renamed item on disk","variants":["List-m-entry-078a-existing"]}
+{"wait":{"entry_gone":"m-entry-079","dir":"rename-target"},"message":"the entry 'm-entry-079' to disappear","variants":["List-m-entry-078a-existing"]}
+{"fs":{"path":"rename-target/m-entry-078a","text":"body\n"},"timeout_ms":0,"variants":["List-m-entry-078a-existing"]}
+{"fs":{"path":"rename-target/m-entry-079","exists":false},"timeout_ms":0,"variants":["List-m-entry-078a-existing"]}
+{"wait":{"all":[{"state":{"target":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"message":"m-entry-078a selected and fully inside the viewport","variants":["List-m-entry-078a-existing"]}
+{"settle":{"role":"panel","within":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}}},"variants":["List-m-entry-078a-existing"]}
+{"expect":{"all":[{"state":{"target":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"variants":["List-m-entry-078a-existing"]}
+{"key":"Up","variants":["List-m-entry-078a-existing"]}
+{"wait":{"selected":["m-entry-078"],"dir":"rename-target"},"message":"the selection to become ['m-entry-078']","variants":["List-m-entry-078a-existing"]}
+{"key":"Down","variants":["List-m-entry-078a-existing"]}
+{"wait":{"selected":["m-entry-078a"],"dir":"rename-target"},"message":"the selection to become ['m-entry-078a']","variants":["List-m-entry-078a-existing"]}
+{"wait":{"all":[{"state":{"target":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"message":"m-entry-078a selected and fully inside the viewport","variants":["List-m-entry-078a-existing"]}
+{"settle":{"role":"panel","within":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}}},"variants":["List-m-entry-078a-existing"]}
+{"expect":{"all":[{"state":{"target":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"variants":["List-m-entry-078a-existing"]}
+{"type":"m-entry-078a","variants":["List-m-entry-078a-new"]}
+{"wait":{"field":{"of":"field","text":"m-entry-078a"}},"message":"the committed name in the editor","variants":["List-m-entry-078a-new"]}
+{"key":"Return","variants":["List-m-entry-078a-new"]}
+{"fs":{"path":"rename-target/m-entry-078a","exists":true},"message":"the renamed item on disk","variants":["List-m-entry-078a-new"]}
+{"wait":{"entry_gone":"new file","dir":"rename-target"},"message":"the entry 'new file' to disappear","variants":["List-m-entry-078a-new"]}
+{"fs":{"path":"rename-target/m-entry-078a","text":""},"timeout_ms":0,"variants":["List-m-entry-078a-new"]}
+{"fs":{"path":"rename-target/new file","exists":false},"timeout_ms":0,"variants":["List-m-entry-078a-new"]}
+{"wait":{"all":[{"state":{"target":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"message":"m-entry-078a selected and fully inside the viewport","variants":["List-m-entry-078a-new"]}
+{"settle":{"role":"panel","within":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}}},"variants":["List-m-entry-078a-new"]}
+{"expect":{"all":[{"state":{"target":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"variants":["List-m-entry-078a-new"]}
+{"key":"Up","variants":["List-m-entry-078a-new"]}
+{"wait":{"selected":["m-entry-078"],"dir":"rename-target"},"message":"the selection to become ['m-entry-078']","variants":["List-m-entry-078a-new"]}
+{"key":"Down","variants":["List-m-entry-078a-new"]}
+{"wait":{"selected":["m-entry-078a"],"dir":"rename-target"},"message":"the selection to become ['m-entry-078a']","variants":["List-m-entry-078a-new"]}
+{"wait":{"all":[{"state":{"target":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"message":"m-entry-078a selected and fully inside the viewport","variants":["List-m-entry-078a-new"]}
+{"settle":{"role":"panel","within":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}}},"variants":["List-m-entry-078a-new"]}
+{"expect":{"all":[{"state":{"target":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"m-entry-078a","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"variants":["List-m-entry-078a-new"]}
+{"type":"zz-final","variants":["List-zz-final-existing"]}
+{"wait":{"field":{"of":"field","text":"zz-final"}},"message":"the committed name in the editor","variants":["List-zz-final-existing"]}
+{"key":"Return","variants":["List-zz-final-existing"]}
+{"fs":{"path":"rename-target/zz-final","exists":true},"message":"the renamed item on disk","variants":["List-zz-final-existing"]}
+{"wait":{"entry_gone":"m-entry-079","dir":"rename-target"},"message":"the entry 'm-entry-079' to disappear","variants":["List-zz-final-existing"]}
+{"fs":{"path":"rename-target/zz-final","text":"body\n"},"timeout_ms":0,"variants":["List-zz-final-existing"]}
+{"fs":{"path":"rename-target/m-entry-079","exists":false},"timeout_ms":0,"variants":["List-zz-final-existing"]}
+{"wait":{"all":[{"state":{"target":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"message":"zz-final selected and fully inside the viewport","variants":["List-zz-final-existing"]}
+{"settle":{"role":"panel","within":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}}},"variants":["List-zz-final-existing"]}
+{"expect":{"all":[{"state":{"target":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"variants":["List-zz-final-existing"]}
+{"key":"Up","variants":["List-zz-final-existing"]}
+{"wait":{"selected":["m-entry-078"],"dir":"rename-target"},"message":"the selection to become ['m-entry-078']","variants":["List-zz-final-existing"]}
+{"key":"Down","variants":["List-zz-final-existing"]}
+{"wait":{"selected":["zz-final"],"dir":"rename-target"},"message":"the selection to become ['zz-final']","variants":["List-zz-final-existing"]}
+{"wait":{"all":[{"state":{"target":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"message":"zz-final selected and fully inside the viewport","variants":["List-zz-final-existing"]}
+{"settle":{"role":"panel","within":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}}},"variants":["List-zz-final-existing"]}
+{"expect":{"all":[{"state":{"target":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"variants":["List-zz-final-existing"]}
+{"type":"zz-final","variants":["List-zz-final-new"]}
+{"wait":{"field":{"of":"field","text":"zz-final"}},"message":"the committed name in the editor","variants":["List-zz-final-new"]}
+{"key":"Return","variants":["List-zz-final-new"]}
+{"fs":{"path":"rename-target/zz-final","exists":true},"message":"the renamed item on disk","variants":["List-zz-final-new"]}
+{"wait":{"entry_gone":"new file","dir":"rename-target"},"message":"the entry 'new file' to disappear","variants":["List-zz-final-new"]}
+{"fs":{"path":"rename-target/zz-final","text":""},"timeout_ms":0,"variants":["List-zz-final-new"]}
+{"fs":{"path":"rename-target/new file","exists":false},"timeout_ms":0,"variants":["List-zz-final-new"]}
+{"wait":{"all":[{"state":{"target":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"message":"zz-final selected and fully inside the viewport","variants":["List-zz-final-new"]}
+{"settle":{"role":"panel","within":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}}},"variants":["List-zz-final-new"]}
+{"expect":{"all":[{"state":{"target":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"variants":["List-zz-final-new"]}
+{"key":"Up","variants":["List-zz-final-new"]}
+{"wait":{"selected":["m-entry-079"],"dir":"rename-target"},"message":"the selection to become ['m-entry-079']","variants":["List-zz-final-new"]}
+{"key":"Down","variants":["List-zz-final-new"]}
+{"wait":{"selected":["zz-final"],"dir":"rename-target"},"message":"the selection to become ['zz-final']","variants":["List-zz-final-new"]}
+{"wait":{"all":[{"state":{"target":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"message":"zz-final selected and fully inside the viewport","variants":["List-zz-final-new"]}
+{"settle":{"role":"panel","within":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}}},"variants":["List-zz-final-new"]}
+{"expect":{"all":[{"state":{"target":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}},"selected":true}},{"inside":{"target":{"role":"panel","within":{"role":"list item","name":"zz-final","within":{"pane":"rename-target"}}},"of":{"container":"rename-target"}}}]},"variants":["List-zz-final-new"]}

@@ -1,0 +1,67 @@
+{"scenario":"preview-mode-survives-unsupported","modes":["columns","icons","list"],"layout":"us","mutation":null,"known_bug":null,"tree":{"a.txt":"root preview\n","z.rar":"unsupported fixture\n","Alpha":{"a.txt":"alpha preview\n","Beta":{"Gamma":{"Delta":{"a.txt":"delta preview\n"}}}}},"images":{"image.png":{"width":80,"height":40,"rgb":[0,128,0]}},"cost":{"columns":2.9,"icons":2.7,"list":2.6},"quality":{"impact":2,"coverage":3,"criticality":3,"diagnostic":3,"score":20,"note":"Preview toggle persists across view-menu switches and unsupported files; List hiding unique; overlaps icons-keep-layout-until-toggled"}}
+{"open_menu":{"role":"toggle button","name":"Appearance"},"until":{"present":{"role":"radio menu item","name":"Columns"}},"message":"the appearance menu to open"}
+{"wait":{"present":{"role":"radio menu item","name":"$view"}},"message":"the $view option"}
+{"click":{"role":"radio menu item","name":"$view"}}
+{"wait":{"view_mode":"$view"},"message":"the browser to switch to the $view view"}
+{"select":{"entry":"z.rar"}}
+{"open_menu":{"role":"toggle button","name":"Appearance"},"until":{"present":{"role":"radio menu item","name":"Columns"}},"message":"the appearance menu to open"}
+{"wait":{"present":{"role":"toggle button","name":"Preview panel"}},"message":"the session preview toggle"}
+{"expect":{"state":{"target":{"role":"toggle button","name":"Preview panel"},"pressed":true}},"message":"Columns reserves previews from startup","modes":["columns"]}
+{"click":{"role":"toggle button","name":"Preview panel"},"modes":["columns"]}
+{"wait":{"menu_items":null},"message":"the menu to close","modes":["columns"]}
+{"open_menu":{"role":"toggle button","name":"Appearance"},"until":{"present":{"role":"radio menu item","name":"Columns"}},"message":"the appearance menu to open","modes":["columns"]}
+{"wait":{"present":{"role":"toggle button","name":"Preview panel"}},"message":"the session preview toggle","modes":["columns"]}
+{"expect":{"present":{"role":"label","name":"Space","within":{"role":"toggle button","name":"Preview panel"}}}}
+{"expect":{"state":{"target":{"role":"toggle button","name":"Preview panel"},"pressed":false}}}
+{"click":{"role":"toggle button","name":"Preview panel"}}
+{"wait":{"menu_items":null},"message":"the menu to close"}
+{"wait":{"preview":"No preview for this selection"},"message":"the reserved preview space","modes":["columns","icons"]}
+{"expect":{"preview":null},"modes":["list"]}
+{"open_menu":{"role":"toggle button","name":"Appearance"},"until":{"present":{"role":"radio menu item","name":"Columns"}},"message":"the appearance menu to open"}
+{"wait":{"present":{"role":"toggle button","name":"Preview panel"}},"message":"the session preview toggle"}
+{"expect":{"state":{"target":{"role":"toggle button","name":"Preview panel"},"pressed":true}}}
+{"key":"Escape"}
+{"wait":{"menu_items":null},"message":"the menu to close"}
+{"select":{"entry":"a.txt"}}
+{"wait":{"preview":"root preview"},"message":"automatic preview after unsupported selection"}
+{"select_with_keyboard":"z.rar"}
+{"wait":{"preview":"No preview for this selection"},"message":"the empty preview slot","modes":["columns","icons"]}
+{"expect":{"not":{"preview":"root preview"}},"modes":["columns","icons"]}
+{"expect":{"state":{"target":{"role":"button","name":"Open in default application","within":{"preview":true}},"sensitive":false}},"modes":["columns","icons"]}
+{"click":{"background":true},"modes":["columns","icons"]}
+{"wait":{"selected":[]},"message":"the selection to become []","modes":["columns","icons"]}
+{"wait":{"preview":"No preview for this selection"},"message":"the cleared selection's preview slot","modes":["columns","icons"]}
+{"wait":{"preview":null},"message":"unsupported selection to hide the panel","modes":["list"]}
+{"open_menu":{"role":"toggle button","name":"Appearance"},"until":{"present":{"role":"radio menu item","name":"Columns"}},"message":"the appearance menu to open"}
+{"wait":{"present":{"role":"toggle button","name":"Preview panel"}},"message":"the session preview toggle"}
+{"expect":{"state":{"target":{"role":"toggle button","name":"Preview panel"},"pressed":true}}}
+{"click":{"role":"toggle button","name":"Preview panel"}}
+{"wait":{"menu_items":null},"message":"the menu to close"}
+{"wait":{"preview":null},"message":"the disabled preview panel to close"}
+{"select":{"entry":"a.txt"}}
+{"expect":{"preview":null}}
+{"key":"space"}
+{"wait":{"preview":"root preview"},"message":"Space to enable the panel"}
+{"open_menu":{"role":"toggle button","name":"Appearance"},"until":{"present":{"role":"radio menu item","name":"Columns"}},"message":"the appearance menu to open"}
+{"wait":{"present":{"role":"toggle button","name":"Preview panel"}},"message":"the session preview toggle"}
+{"expect":{"state":{"target":{"role":"toggle button","name":"Preview panel"},"pressed":true}}}
+{"key":"Escape"}
+{"wait":{"menu_items":null},"message":"the menu to close"}
+{"select":{"entry":"Alpha"},"modes":["columns"]}
+{"click":{"entry":"Alpha"},"count":2,"modes":["icons","list"]}
+{"wait":{"directory":"Alpha"},"message":"the browser to be working in 'Alpha'"}
+{"settle":{"pane":"Alpha"}}
+{"select_with_keyboard":"a.txt"}
+{"wait":{"preview":"alpha preview"},"message":"preview after directory navigation"}
+{"select_with_keyboard":"Beta"}
+{"wait":{"panes":{"ends_with":["Beta"]}},"message":"the column the cursor mirrors","modes":["columns"]}
+{"key":"space"}
+{"wait":{"directory":"Beta"},"message":"the browser to be working in 'Beta'"}
+{"settle":{"pane":"Beta"}}
+{"open_menu":{"role":"toggle button","name":"Appearance"},"until":{"present":{"role":"radio menu item","name":"Columns"}},"message":"the appearance menu to open"}
+{"wait":{"present":{"role":"toggle button","name":"Preview panel"}},"message":"the session preview toggle"}
+{"expect":{"state":{"target":{"role":"toggle button","name":"Preview panel"},"pressed":true}}}
+{"key":"Escape"}
+{"wait":{"menu_items":null},"message":"the menu to close"}
+{"expect":{"selected":["Beta"],"dir":"Alpha"},"modes":["columns"]}
+{"expect":{"directory":"Beta"},"modes":["icons","list"]}

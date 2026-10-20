@@ -2,11 +2,6 @@ name: CI
 
 on:
   workflow_dispatch:
-    inputs:
-      require_published_environments:
-        description: Bypass the fast dependency cache and require verified published base images
-        type: boolean
-        default: false
   push:
     branches: [main]
   pull_request:
@@ -16,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.require_published_environments && 'published' || 'normal' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -50,7 +45,7 @@ jobs:
             docker pull --platform=linux/amd64 "${reference#environment_image=}"
           else
             git cat-file -e "$BASE_REF^{commit}"
-            if git diff --quiet "$BASE_REF" HEAD -- tests/e2e/Dockerfile tests/e2e/requirements.txt tests/e2e/install-packages.sh tests/e2e/gtk; then
+            if git diff --quiet "$BASE_REF" HEAD -- tests/container; then
               echo 'The unchanged environment is unavailable. Restore public access; ordinary quality runs do not bootstrap distribution packages.' >&2
               exit 1
             else
@@ -259,14 +254,11 @@ jobs:
       - name: Verify exact Rust test coverage
         run: python3 scripts/quality_ci.py verify
 
-  # QA jobs are informational: continue-on-error, and the required quality gate
-  # does not need them.
   qa:
     name: QA scenarios
     needs: quality-build
     if: ${{ github.event_name != 'push' && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    continue-on-error: true
     timeout-minutes: 30
     steps:
       - name: Check out repository

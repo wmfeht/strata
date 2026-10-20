@@ -1,0 +1,51 @@
+{"scenario":"filter-updates-retain-state","modes":["columns","icons","list"],"layout":"us","mutation":"filter-results","known_bug":null,"tree":{"match-note.txt":"root decoy\n","alpha":{"match-note.txt":"alpha source\n"},"beta":{"match-note.txt":"beta source\n","only-match.txt":"beta source\n"},"match-note-other.md":"other match\n","destination":{},"thumb.txt":"thumbnail search companion"},"images":{"beta/thumb.png":{"width":64,"height":64,"rgb":[230,40,60]}},"cost":{"columns":2.4,"icons":2.4,"list":2.4},"quality":{"impact":3,"coverage":3,"criticality":3,"diagnostic":3,"score":25,"note":"Repeated filter query edits keep selection, field focus, preview and empty-space menu; repeated-retype route is unique to this scenario"}}
+{"select":{"entry":"match-note.txt"}}
+{"key":"ctrl+f"}
+{"wait":{"field":{}},"message":"an editable field to take focus"}
+{"remember":{"field":true},"as":"filter"}
+{"type":"match-note"}
+{"wait":{"matches":{"count":4}},"message":"all recursive matches"}
+{"wait":{"present":{"result":"beta/match-note.txt"}},"message":"the beta result"}
+{"click":{"result":"beta/match-note.txt"},"mods":["ctrl"]}
+{"click":{"field":"filter"}}
+{"key":"space"}
+{"wait":{"preview":"beta source"},"message":"the selected preview"}
+{"move":{"result":"alpha/match-note.txt"}}
+{"settle":{"result":"alpha/match-note.txt"}}
+{"expect":{"state":{"target":{"result":"alpha/match-note.txt"},"selected":false}},"message":"hovering not to select the alpha result"}
+{"expect":{"state":{"target":{"result":"beta/match-note.txt"},"selected":true}},"message":"the beta result to stay selected"}
+{"expect":{"preview":"beta source"},"message":"the preview to stay on the beta result"}
+{"key":"ctrl+a"}
+{"type":"match-note.t"}
+{"wait":{"matches":{"count":3}},"message":"the updated result count"}
+{"expect":{"state":{"target":{"result":"beta/match-note.txt"},"selected":true}},"message":"the beta result to stay selected"}
+{"expect":{"field":{"of":"filter","focused":true}},"message":"the filter to keep focus"}
+{"expect":{"field":{"of":"filter","text":"match-note.t"}},"message":"the filter to keep the typed query"}
+{"expect":{"preview":"beta source"},"message":"the preview to stay on the beta result"}
+{"key":"ctrl+a"}
+{"type":"match-note"}
+{"wait":{"matches":{"count":4}},"message":"the updated result count"}
+{"expect":{"state":{"target":{"result":"beta/match-note.txt"},"selected":true}},"message":"the beta result to stay selected"}
+{"expect":{"field":{"of":"filter","focused":true}},"message":"the filter to keep focus"}
+{"expect":{"field":{"of":"filter","text":"match-note"}},"message":"the filter to keep the typed query"}
+{"expect":{"preview":"beta source"},"message":"the preview to stay on the beta result"}
+{"key":"ctrl+a"}
+{"type":"match-note.t"}
+{"wait":{"matches":{"count":3}},"message":"the updated result count"}
+{"expect":{"state":{"target":{"result":"beta/match-note.txt"},"selected":true}},"message":"the beta result to stay selected"}
+{"expect":{"field":{"of":"filter","focused":true}},"message":"the filter to keep focus"}
+{"expect":{"field":{"of":"filter","text":"match-note.t"}},"message":"the filter to keep the typed query"}
+{"expect":{"preview":"beta source"},"message":"the preview to stay on the beta result"}
+{"key":"ctrl+a"}
+{"type":"match-note"}
+{"wait":{"matches":{"count":4}},"message":"the updated result count"}
+{"expect":{"state":{"target":{"result":"beta/match-note.txt"},"selected":true}},"message":"the beta result to stay selected"}
+{"expect":{"field":{"of":"filter","focused":true}},"message":"the filter to keep focus"}
+{"expect":{"field":{"of":"filter","text":"match-note"}},"message":"the filter to keep the typed query"}
+{"expect":{"preview":"beta source"},"message":"the preview to stay on the beta result"}
+{"key":"space"}
+{"wait":{"preview":null},"message":"Space to close after updates"}
+{"expect":{"field":{"of":"filter","text":"match-note"}}}
+{"click":{"background":true},"button":3}
+{"wait":{"menu_items":{}},"message":"the empty-space menu"}
+{"expect":[{"menu_items":{"contains":["New Folder"]}},{"menu_items":{"excludes":["Quick preview"]}}]}

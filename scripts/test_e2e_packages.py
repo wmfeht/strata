@@ -8,7 +8,7 @@ import sys
 import tempfile
 import unittest
 
-SCRIPT = Path(__file__).resolve().parents[1] / "tests/e2e/install-packages.sh"
+SCRIPT = Path(__file__).resolve().parents[1] / "tests/container/install-packages.sh"
 SNAPSHOT = "2026/09/11"
 SERVER = f"Server = https://archive.archlinux.org/repos/{SNAPSHOT}/$repo/os/$arch\n"
 

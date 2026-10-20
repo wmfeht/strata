@@ -8,18 +8,22 @@ scenario files; whoever applies the rubric writes those fields.
 Re-check an anchor's evidence before relying on it after the code or the
 corpus changes. The re-score triggers in SKILL.md apply to anchors too.
 
+Anchors 9 and 10, and `permanent-delete-confirmation`, were later removed from
+the suite for their low score per unit of cost; they stay here as scoring
+examples at that revision.
+
 | # | Scenario | I | C | K | D | Score | Note |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `test_copy_conflicts/dismissing-conflict-preserves-both` | 5 | 5 | 4 | 4 | 84 | paste-conflict dismissal by Escape/Cancel/close/move keeps both files; only scenario checking dismissal outcomes |
-| 2 | `test_copy_conflicts/keep-both-then-undo-remaining` | 4 | 4 | 4 | 3 | 52 | Keep Both via keyboard from default Replace focus, then undo; superset of keep-both-then-undo, only keyboard route through the conflict dialog |
-| 3 | `test_entry_management/permanent-delete-symlinked-parent` | 5 | 3 | 4 | 4 | 42 | permanent delete inside a symlinked folder keeps link and target; fs logic unit-tested, alias pane path is not |
-| 4 | `test_dialogs_and_menus/modal-dialog-blocks-window-shortcuts` | 3 | 4 | 4 | 5 | 54 | window shortcuts stay blocked over a modal; added by a fix, no unit or other scenario covers it |
-| 5 | `test_copy_conflicts/keep-both-then-undo` | 4 | 2 | 4 | 3 | 17 | Keep Both by click, then undo; every assertion repeated by keep-both-then-undo-remaining |
-| 6 | `test_accessibility/toolbar-controls-named` | 3 | 3 | 3 | 5 | 31 | toolbar buttons expose names; Search and Toggle sidebar names checked nowhere else |
-| 7 | `test_view_switching/appearance-menu-switches-view` | 3 | 2 | 3 | 4 | 14 | Icons switch via Appearance menu persists; appearance-menu-switches-view-list covers the same path for List |
-| 8 | `test_visual_baselines/icons-hover-baseline` | 2 | 2 | 3 | 1 | 7 | hovered Icons tile rendering; only hover capture, fixture shared with icons-view-baseline |
-| 9 | `test_filter_results/filter-selection-uses-theme` | 2 | 2 | 3 | 3 | 10 | filter text selection uses the theme accent; unique but cosmetic, added with fix #778 |
-| 10 | `test_column_headers/column-header-titles-bounded` | 2 | 1 | 2 | 2 | 0 | column title bounds and centring; geometry-only assertions |
+| 1 | `copy_conflicts/dismissing-conflict-preserves-both` | 5 | 5 | 4 | 4 | 84 | paste-conflict dismissal by Escape/Cancel/close/move keeps both files; only scenario checking dismissal outcomes |
+| 2 | `copy_conflicts/keep-both-then-undo-remaining` | 4 | 4 | 4 | 3 | 52 | Keep Both via keyboard from default Replace focus, then undo; superset of keep-both-then-undo, only keyboard route through the conflict dialog |
+| 3 | `entry_management/permanent-delete-symlinked-parent` | 5 | 3 | 4 | 4 | 42 | permanent delete inside a symlinked folder keeps link and target; fs logic unit-tested, alias pane path is not |
+| 4 | `dialogs_and_menus/modal-dialog-blocks-window-shortcuts` | 3 | 4 | 4 | 5 | 54 | window shortcuts stay blocked over a modal; added by a fix, no unit or other scenario covers it |
+| 5 | `copy_conflicts/keep-both-then-undo` | 4 | 2 | 4 | 3 | 17 | Keep Both by click, then undo; every assertion repeated by keep-both-then-undo-remaining |
+| 6 | `accessibility/toolbar-controls-named` | 3 | 3 | 3 | 5 | 31 | toolbar buttons expose names; Search and Toggle sidebar names checked nowhere else |
+| 7 | `view_switching/appearance-menu-switches-view` | 3 | 2 | 3 | 4 | 14 | Icons switch via Appearance menu persists; appearance-menu-switches-view-list covers the same path for List |
+| 8 | `visual_baselines/icons-hover-baseline` | 2 | 2 | 3 | 1 | 7 | hovered Icons tile rendering; only hover capture, fixture shared with icons-view-baseline |
+| 9 | `filter_results/filter-selection-uses-theme` | 2 | 2 | 3 | 3 | 10 | filter text selection uses the theme accent; unique but cosmetic, added with fix #778 |
+| 10 | `column_headers/column-header-titles-bounded` | 2 | 1 | 2 | 2 | 0 | column title bounds and centring; geometry-only assertions |
 
 I = impact, C = coverage, K = criticality, D = diagnostic. Scores follow
 `(50*(C-1)*P + 32) // 64` with `P = 3*(I-1) + 3*(K-1) + 2*(D-1)`.

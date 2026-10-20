@@ -46,7 +46,7 @@ pub(crate) fn a_numbered_tree_expands_like_the_python_comprehension() {
 pub(crate) fn a_run_keeps_its_own_mode_steps_and_rejects_a_malformed_one() {
     let header = || -> Header {
         serde_json::from_value(json!({
-            "scenario": "example", "modes": ["columns", "icons"], "twin": "x",
+            "scenario": "example", "modes": ["columns", "icons"],
             "mutation": null, "known_bug": null,
         }))
         .expect("the header should parse")
@@ -102,7 +102,7 @@ pub(crate) fn a_run_keeps_its_own_mode_steps_and_rejects_a_malformed_one() {
 pub(crate) fn notes_stand_in_for_what_a_run_reads_and_unknown_variables_are_rejected() {
     let header = || -> Header {
         serde_json::from_value(json!({
-            "scenario": "example", "modes": ["columns"], "twin": "x", "mutation": null,
+            "scenario": "example", "modes": ["columns"], "mutation": null,
             "known_bug": null, "variants": [{ "id": "name" }, { "id": "row-space" }],
         }))
         .expect("the header should parse")
@@ -159,7 +159,7 @@ pub(crate) fn notes_stand_in_for_what_a_run_reads_and_unknown_variables_are_reje
     let path = directory.path().join("example.jsonl");
     fs::write(
         &path,
-        "{\"scenario\":\"example\",\"modes\":[\"columns\"],\"twin\":\"x\",\"mutation\":null,\
+        "{\"scenario\":\"example\",\"modes\":[\"columns\"],\"mutation\":null,\
          \"variants\":[{\"id\":\"name\"}]}\n{\"key\":\"Escape\",\"variants\":[\"missing\"]}\n",
     )
     .expect("the scenario should be written");
@@ -396,7 +396,7 @@ pub(crate) fn a_flag_keeps_whether_a_predicate_held_and_always_runs() {
     );
 }
 
-pub(crate) fn fs_actions_write_the_twins_archives_thumbnails_and_records() {
+pub(crate) fn fs_actions_write_archives_thumbnails_and_records() {
     let root = tempfile::tempdir().expect("a scratch directory");
     let mut state = FsState {
         roots: vec![root.path().to_owned()],
@@ -552,7 +552,7 @@ pub(crate) fn log_proc_and_each_steps_check_their_shape_before_the_run() {
         fs::write(
             &path,
             format!(
-                "{{\"scenario\":\"example\",\"modes\":[\"columns\"],\"twin\":\"x\",\"mutation\":null,\
+                "{{\"scenario\":\"example\",\"modes\":[\"columns\"],\"mutation\":null,\
                  \"known_bug\":null,\"env\":{{\"{name}\":\"x\"}}}}\n{{\"key\":\"Escape\"}}\n"
             ),
         )
@@ -620,7 +620,7 @@ pub(crate) fn peer_restart_and_guard_steps_check_their_shape_before_the_run() {
     );
 }
 
-pub(crate) fn glob_and_zipcrypto_helpers_mirror_the_twins() {
+pub(crate) fn glob_and_zipcrypto_helpers_match_names_and_write_archives() {
     assert!(glob_matches(
         ".strata-compression-*",
         ".strata-compression-x1"
@@ -656,7 +656,7 @@ pub(crate) fn glob_and_zipcrypto_helpers_mirror_the_twins() {
     }
 }
 
-pub(crate) fn baseline_comparison_thresholds_pixels_and_budget_as_the_twin_does() {
+pub(crate) fn baseline_comparison_thresholds_pixels_and_budget() {
     let grey = image::Rgb([100, 100, 100]);
     let baseline = image::RgbImage::from_pixel(200, 1, grey);
     for (channel, shift, differs) in [(0, 24, false), (1, 25, true), (2, -25, true)] {
@@ -676,7 +676,7 @@ pub(crate) fn baseline_comparison_thresholds_pixels_and_budget_as_the_twin_does(
     }
 }
 
-pub(crate) fn baseline_mismatches_fail_without_writing_the_baseline() {
+pub(crate) fn baseline_mismatches_fail_and_only_an_update_writes_the_baseline() {
     let scratch = tempfile::tempdir().expect("a scratch directory");
     let (images, artifacts) = (
         scratch.path().join("gtk-4.22"),
@@ -694,10 +694,10 @@ pub(crate) fn baseline_mismatches_fail_without_writing_the_baseline() {
     save(&actual, 3);
     let committed = fs::read(&expected).expect("the baseline");
 
-    let resized = compare_in(&images, "view", &actual, &artifacts).expect("a comparison");
+    let resized = compare_in(&images, "view", &actual, &artifacts, false).expect("a comparison");
     assert!(!resized.matched);
     assert_eq!(resized.detail, "size changed from (2, 2) to (3, 2)");
-    let missing = compare_in(&images, "absent", &actual, &artifacts).expect("a comparison");
+    let missing = compare_in(&images, "absent", &actual, &artifacts, false).expect("a comparison");
     assert!(!missing.matched);
     assert_eq!(missing.detail, "no baseline at gtk-4.22/absent.png");
     assert_eq!(missing.different_fraction, 1.0);
@@ -705,6 +705,16 @@ pub(crate) fn baseline_mismatches_fail_without_writing_the_baseline() {
     assert_eq!(fs::read(&expected).expect("the baseline"), committed);
     assert!(!images.join("absent.png").exists());
     assert!(artifacts.join("view.actual.png").is_file());
+
+    let captured = fs::read(&actual).expect("the capture");
+    for name in ["view", "absent"] {
+        let updated = compare_in(&images, name, &actual, &artifacts, true).expect("an update");
+        assert!(updated.matched, "{name}");
+        assert_eq!(
+            fs::read(images.join(format!("{name}.png"))).expect("the baseline"),
+            captured
+        );
+    }
 }
 
 pub(crate) fn fixture_roots_and_baseline_steps_check_their_shape_before_the_run() {
