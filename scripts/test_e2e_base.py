@@ -3,8 +3,8 @@
 import unittest
 from unittest.mock import Mock, patch
 
-from e2e_base import build_base, ensure_base, verify_image
-from e2e_bundle import image_key
+from e2e_base import build_base, ensure_base, require_docker_buildkit, verify_image
+from e2e_bundle import REPOSITORY, image_key
 
 
 def valid_image():
@@ -76,6 +76,30 @@ class LocalBaseTests(unittest.TestCase):
         self.assertIn("E2E_GID=5678", command)
         self.assertIn("org.strata.e2e.inputs=" + image_key(), command)
         self.assertIn("toolchain", command)
+        self.assertEqual(command[-1], str(REPOSITORY))
+
+    def test_docker_builds_require_buildkit_before_invoking_the_legacy_builder(self):
+        with patch("e2e_base.subprocess.run", return_value=Mock(returncode=1)) as run, \
+             self.assertRaisesRegex(ValueError, "BuildKit"):
+            require_docker_buildkit("docker")
+        self.assertEqual(run.call_args.args[0][:2], ["docker", "buildx"])
+        with patch("e2e_base.subprocess.run", return_value=Mock(returncode=1)) as run, \
+             patch("e2e_base.inspect", return_value=valid_image()), \
+             self.assertRaisesRegex(ValueError, "install-packages.sh"):
+            build_base("/tmp/docker-hostnet/docker")
+        run.assert_called_once()
+        self.assertEqual(run.call_args.args[0][:2], ["/tmp/docker-hostnet/docker", "buildx"])
+
+    def test_docker_build_uses_checkout_root_when_buildkit_is_present(self):
+        with patch("e2e_base.os.getuid", return_value=1000), patch("e2e_base.os.getgid", return_value=1000), \
+             patch("e2e_base.subprocess.run", return_value=Mock(returncode=0)) as run, \
+             patch("e2e_base.inspect", return_value=valid_image()):
+            build_base("docker")
+        self.assertEqual(run.call_args_list[0].args[0][:2], ["docker", "buildx"])
+        command = run.call_args_list[1].args[0]
+        self.assertEqual(command[:2], ["docker", "build"])
+        self.assertEqual(command[-1], str(REPOSITORY))
+        self.assertNotEqual(command[-1], str(REPOSITORY / "tests/e2e"))
 
 
 if __name__ == "__main__":
