@@ -1,0 +1,8 @@
+{"scenario":"filtered-result-to-sidebar-folder","modes":["columns"],"layout":"us","mutation":null,"known_bug":null,"quality":{"impact":3,"coverage":3,"criticality":4,"diagnostic":4,"score":33,"note":"Recursive Ctrl+F result dragged onto sidebar Home moves the file; only drag-from-results route, drop covered by sidebar-destinations-accept-three-files"}}
+{"key":"ctrl+f"}
+{"type":"spr"}
+{"wait":{"present":{"search_result":"spreadsheet.csv"}},"message":"the recursive filter to list 'spreadsheet.csv' from 'documents'"}
+{"drag":{"from":{"search_result":"spreadsheet.csv"},"to":{"sidebar":"Home"}},"steps":8}
+{"fs":{"path":"$home/spreadsheet.csv","text":"a,b\n1,2\n"},"message":"the filtered result to arrive intact in Home"}
+{"fs":{"path":"documents/spreadsheet.csv","exists":false},"message":"the filtered result to be moved out of 'documents'"}
+{"wait":{"absent":{"search_result":"spreadsheet.csv"}},"message":"the moved result to leave the filtered listing"}
