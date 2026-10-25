@@ -553,3 +553,256 @@ fn search_asks_past_hits_proven_gone_until_present_ones_fill_the_view() {
         },
     );
 }
+
+fn widget_text(widget: &gtk::Widget) -> Option<String> {
+    if let Some(label) = widget.downcast_ref::<gtk::Label>() {
+        return Some(label.text().to_string());
+    }
+    widget
+        .downcast_ref::<gtk::Inscription>()
+        .and_then(|label| label.text())
+        .as_deref()
+        .map(ToString::to_string)
+}
+
+fn find_mapped_text(widget: &gtk::Widget, name: &str) -> Option<gtk::Widget> {
+    if widget.is_mapped() && widget_text(widget).as_deref() == Some(name) {
+        return Some(widget.clone());
+    }
+    let mut child = widget.first_child();
+    while let Some(current) = child {
+        if let Some(found) = find_mapped_text(&current, name) {
+            return Some(found);
+        }
+        child = current.next_sibling();
+    }
+    None
+}
+
+fn primary_click(widget: &gtk::Widget) -> Option<gtk::GestureClick> {
+    let mut current = Some(widget.clone());
+    while let Some(widget) = current {
+        let controllers = widget.observe_controllers();
+        for index in 0..controllers.n_items() {
+            if let Some(click) = controllers
+                .item(index)
+                .and_then(|controller| controller.downcast::<gtk::GestureClick>().ok())
+                && click.button() == 1
+                && click.propagation_phase() == gtk::PropagationPhase::Capture
+            {
+                return Some(click);
+            }
+        }
+        current = widget.parent();
+    }
+    None
+}
+
+fn click_named(root: &gtk::Widget, name: &str, presses: i32) -> bool {
+    let Some(label) = find_mapped_text(root, name) else {
+        return false;
+    };
+    let Some(click) = primary_click(&label) else {
+        return false;
+    };
+    click.emit_by_name::<()>("pressed", &[&presses, &8.0f64, &8.0f64]);
+    click.emit_by_name::<()>("released", &[&presses, &8.0f64, &8.0f64]);
+    true
+}
+
+fn activate_named_list(root: &gtk::Widget, name: &str) -> bool {
+    let Some(label) = find_mapped_text(root, name) else {
+        return false;
+    };
+    let mut current = label.parent();
+    while let Some(widget) = current {
+        if let Some(list) = widget.downcast_ref::<gtk::ListView>() {
+            let Some(selection) = list.model() else {
+                return false;
+            };
+            let Some(position) =
+                (0..selection.n_items()).find(|position| selection.is_selected(*position))
+            else {
+                return false;
+            };
+            list.emit_by_name::<()>("activate", &[&position]);
+            return true;
+        }
+        current = widget.parent();
+    }
+    false
+}
+
+struct ClickPreferenceRestore {
+    previews: bool,
+    subfolders: bool,
+    clicks: [(BrowserMode, crate::ui::browser_modes::ClickActivation); 3],
+}
+
+impl Drop for ClickPreferenceRestore {
+    fn drop(&mut self) {
+        let preferences = PreferenceManager::shared();
+        preferences.set_single_click_previews(self.previews);
+        preferences.set_filter_include_subfolders(self.subfolders);
+        for (mode, activation) in self.clicks {
+            preferences.set_click_activation(mode, activation);
+        }
+    }
+}
+
+fn preview_names(events: &[crate::app::BrowserEvent]) -> Vec<String> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            crate::app::BrowserEvent::PreviewRequested { entry, .. } => {
+                Some(entry.display_name.clone())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn opened_names(events: &[crate::app::BrowserEvent]) -> Vec<String> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            crate::app::BrowserEvent::OpenRequested { location } => {
+                location.native_path().and_then(|path| {
+                    path.file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                })
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn filtered_file_click_previews_and_double_click_opens() {
+    crate::test_support::gtk_test(
+        "ui::browser::columns::tests::filtered_file_click_previews_and_double_click_opens",
+        || {
+            use crate::ui::browser_modes::{ClickActivation, ClickCount};
+
+            let preferences = PreferenceManager::shared();
+            let previous_previews = preferences.single_click_previews();
+            let previous_subfolders = preferences.filter_include_subfolders();
+            let previous_clicks = [BrowserMode::Columns, BrowserMode::Icons, BrowserMode::List]
+                .map(|mode| (mode, preferences.click_activation(mode)));
+            preferences.set_single_click_previews(true);
+            preferences.set_filter_include_subfolders(false);
+            for mode in [BrowserMode::Columns, BrowserMode::Icons, BrowserMode::List] {
+                preferences.set_click_activation(
+                    mode,
+                    ClickActivation {
+                        files: ClickCount::Two,
+                        folders: ClickCount::Two,
+                    },
+                );
+            }
+            let _restore = ClickPreferenceRestore {
+                previews: previous_previews,
+                subfolders: previous_subfolders,
+                clicks: previous_clicks,
+            };
+            for mode in [BrowserMode::List, BrowserMode::Icons, BrowserMode::Columns] {
+                let root = tempfile::tempdir().expect("filter fixture");
+                std::fs::write(root.path().join("preview-note.txt"), "preview me\n").expect("file");
+                std::fs::create_dir(root.path().join("docs-folder")).expect("folder");
+                std::fs::write(root.path().join("other.txt"), "other\n").expect("decoy");
+                let (view, window) = search_view(mode, root.path());
+                let events = Rc::new(RefCell::new(Vec::new()));
+                let recorded = events.clone();
+                view.browser().observe(move |event| match event {
+                    crate::app::BrowserEvent::PreviewRequested { .. }
+                    | crate::app::BrowserEvent::OpenRequested { .. } => {
+                        recorded.borrow_mut().push(event.clone());
+                    }
+                    _ => {}
+                });
+
+                assert!(view.show_filter_with_query("preview-note"));
+                let file_hits = ["preview-note.txt".to_owned()]
+                    .into_iter()
+                    .collect::<std::collections::BTreeSet<_>>();
+                pump_until(|| hit_names(&view) == file_hits, "the filtered file");
+                pump_until(
+                    || {
+                        find_mapped_text(&view.widget(), "preview-note.txt")
+                            .is_some_and(|label| primary_click(&label).is_some())
+                    },
+                    "the filtered file row",
+                );
+                assert!(
+                    click_named(&view.widget(), "preview-note.txt", 1),
+                    "{mode:?} single click"
+                );
+                pump_until(
+                    || {
+                        view.selected_search_results().is_some_and(|entries| {
+                            entries.len() == 1 && entries[0].display_name == "preview-note.txt"
+                        })
+                    },
+                    "the filtered file to be selected",
+                );
+                assert_eq!(
+                    preview_names(&events.borrow()),
+                    ["preview-note.txt"],
+                    "{mode:?} single click previews"
+                );
+                assert!(
+                    opened_names(&events.borrow()).is_empty(),
+                    "{mode:?} single click opened {:?}",
+                    opened_names(&events.borrow())
+                );
+
+                events.borrow_mut().clear();
+                let opened = if mode == BrowserMode::Columns {
+                    activate_named_list(&view.widget(), "preview-note.txt")
+                } else {
+                    click_named(&view.widget(), "preview-note.txt", 2)
+                };
+                assert!(opened, "{mode:?} double click");
+                assert_eq!(
+                    opened_names(&events.borrow()),
+                    ["preview-note.txt"],
+                    "{mode:?} double click opens once"
+                );
+                assert!(
+                    preview_names(&events.borrow()).is_empty(),
+                    "{mode:?} double click previewed again"
+                );
+
+                events.borrow_mut().clear();
+                assert!(view.show_filter_with_query("docs-folder"));
+                let folder_hits = ["docs-folder".to_owned()]
+                    .into_iter()
+                    .collect::<std::collections::BTreeSet<_>>();
+                pump_until(|| hit_names(&view) == folder_hits, "the filtered folder");
+                pump_until(
+                    || find_mapped_text(&view.widget(), "docs-folder").is_some(),
+                    "the filtered folder row",
+                );
+                assert!(
+                    click_named(&view.widget(), "docs-folder", 1),
+                    "{mode:?} folder click"
+                );
+                pump_until(
+                    || {
+                        view.browser().active_location().is_some_and(|location| {
+                            location
+                                .native_path()
+                                .is_some_and(|path| path.ends_with("docs-folder"))
+                        })
+                    },
+                    "the filtered folder to open",
+                );
+                assert!(
+                    opened_names(&events.borrow()).is_empty(),
+                    "{mode:?} folder click launched a file"
+                );
+                close_search_view(&view, &window);
+            }
+        },
+    );
+}

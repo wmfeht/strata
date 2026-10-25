@@ -402,9 +402,13 @@ pub(super) struct BoundRow {
 
 #[derive(Clone, Copy)]
 pub(super) enum PendingActivationKind {
-    Standard { preview: bool },
+    Standard {
+        preview: bool,
+    },
     ChooserSearchNavigate,
     RecursiveSearch,
+    /// A filtered file whose single click previews instead of launching.
+    RecursivePreview,
     Mapped,
 }
 

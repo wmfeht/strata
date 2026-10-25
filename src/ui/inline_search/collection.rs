@@ -21,7 +21,7 @@ use std::{
 pub(super) struct CollectionBehavior {
     pub(super) multiple_selection: Rc<Cell<bool>>,
     pub(super) activate: Rc<dyn Fn(FileEntry)>,
-    pub(super) single_click: Rc<dyn Fn(FileEntry)>,
+    pub(super) single_click: Rc<dyn Fn(FileEntry, i32)>,
     pub(super) focus_items: Rc<dyn Fn()>,
     pub(super) focus_entry: Rc<dyn Fn() -> bool>,
     pub(super) enter: crate::ui::enter_target::EnterTarget,
@@ -433,7 +433,8 @@ fn install_result_interactions(
     let pointer_for_release = pointer_activation.clone();
     let single_click = interactions.behavior.single_click.clone();
     crate::ui::pointer::connect_click_release(&click, item, move |gesture, press_count, _, _| {
-        if press_count != 1 || pointer_for_release.activation() != Some(true) {
+        if pointer_for_release.activation() != Some(true) || (press_count != 1 && press_count != 2)
+        {
             return;
         }
         // Claiming keeps GTK's release-time selection from collapsing a preserved group.
@@ -445,7 +446,7 @@ fn install_result_interactions(
             .upgrade()
             .and_then(|item| collection_entry(&model_for_release, item.position()))
         {
-            single_click(entry);
+            single_click(entry, press_count);
         }
     });
     let weak_item = item.downgrade();
