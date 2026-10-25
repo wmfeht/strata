@@ -2191,6 +2191,8 @@ struct ModeClickOptions {
 fn search_collection_options(
     presentation: super::inline_search::SearchPresentation,
     browser: &Rc<Browser>,
+    previews: Rc<Cell<bool>>,
+    activation: Rc<Cell<ClickActivation>>,
     multiple_selection: Rc<Cell<bool>>,
     selection_handlers: super::inline_search::SearchSelectionHandlers,
     context_state: Rc<RefCell<Option<Weak<super::browser::ViewState>>>>,
@@ -2207,18 +2209,43 @@ fn search_collection_options(
         }
     });
     let weak_browser = Rc::downgrade(browser);
-    let single_click = Rc::new(move |entry: FileEntry| {
+    // A filtered folder still opens on one plain click. A file follows the same
+    // single-click preview and click-count rules as the unfiltered listing.
+    let single_click = Rc::new(move |entry: FileEntry, presses: i32| {
         let Some(browser) = weak_browser.upgrade() else {
             return;
         };
-        if browser.is_chooser_mode() {
+        let chooser = browser.is_chooser_mode();
+        if presses >= 2 {
+            if !chooser
+                && !entry.is_directory()
+                && activation.get().files != ClickCount::One
+                && !is_trash_location(&entry.location)
+            {
+                browser.open_location(entry.location);
+            }
+            return;
+        }
+        if chooser {
             if entry.is_directory() {
                 browser.navigate(entry.location);
             }
-        } else if entry.is_directory() {
+            return;
+        }
+        if entry.is_directory() {
             browser.navigate(entry.location);
-        } else {
+            return;
+        }
+        if is_trash_location(&entry.location) {
+            if previews.get() && super::preview::entry_supports_quick_preview(&entry) {
+                browser.request_preview(entry);
+            }
+            return;
+        }
+        if activation.get().files == ClickCount::One {
             browser.open_location(entry.location);
+        } else if previews.get() && super::preview::entry_supports_quick_preview(&entry) {
+            browser.request_preview(entry);
         }
     });
     let focus_state = context_state.clone();
@@ -2731,6 +2758,8 @@ fn build_icons_pane(
                 max_columns: density_icons_columns(context.density.get()),
             },
             &context.browser,
+            context.click.previews.clone(),
+            context.click.activation.clone(),
             context.click.multiple_selection.clone(),
             search_selection_handlers,
             options.search_context_state.clone(),
@@ -3913,8 +3942,8 @@ fn build_list_pane(
         },
         selection: selection.clone(),
         syncing: syncing_selection.clone(),
-        previews: click_options.previews,
-        activation: click_options.activation,
+        previews: click_options.previews.clone(),
+        activation: click_options.activation.clone(),
         transfers: transfer_handler.clone(),
         marks: clipboard_marks.clone(),
         columns: columns.clone(),
@@ -4079,6 +4108,8 @@ fn build_list_pane(
         search_collection_options(
             super::inline_search::SearchPresentation::Rows,
             &browser,
+            click_options.previews.clone(),
+            click_options.activation.clone(),
             click_options.multiple_selection.clone(),
             search_selection_handlers,
             options.search_context_state.clone(),
@@ -5171,21 +5202,12 @@ fn install_preview_click(
         let Some(entry) = browser.entry_at(depth, position) else {
             return;
         };
-        if should_activate_filtered_pointer(press_count, &filter_query) {
+        // Folders in an in-place filter still open on one click. Files fall through
+        // to the same preview and click-count handling as an unfiltered row.
+        if entry.is_directory() && should_activate_filtered_pointer(press_count, &filter_query) {
             gesture.set_state(gtk::EventSequenceState::Claimed);
-            if press_count == 1 {
-                browser.select(depth, position);
-                if (!browser.is_chooser_mode() || entry.is_directory())
-                    && (!is_trash_location(&entry.location) || entry.is_directory())
-                {
-                    browser.activate_in_place(depth, position);
-                } else if enabled.get()
-                    && !entry.is_directory()
-                    && super::preview::entry_supports_quick_preview(&entry)
-                {
-                    browser.preview(depth, position);
-                }
-            }
+            browser.select(depth, position);
+            browser.activate_in_place(depth, position);
             return;
         }
         if should_activate_pointer_click(press_count, entry.is_directory(), click_activation.get())

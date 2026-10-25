@@ -49,7 +49,7 @@ pub(super) struct SearchCollectionOptions {
     pub(super) presentation: SearchPresentation,
     pub(super) multiple_selection: Rc<Cell<bool>>,
     pub(super) activate: Rc<dyn Fn(FileEntry)>,
-    pub(super) single_click: Rc<dyn Fn(FileEntry)>,
+    pub(super) single_click: Rc<dyn Fn(FileEntry, i32)>,
     pub(super) selection_changed: SearchSelectionChanged,
     pub(super) focus_items: Rc<dyn Fn()>,
     /// Runs after the displayed results (or the return to the directory) change.

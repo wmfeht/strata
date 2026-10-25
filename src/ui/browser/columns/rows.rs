@@ -47,6 +47,47 @@ fn anchor_at(state: &std::rc::Weak<ViewState>, depth: usize, map: &ViewMap, row:
     }
 }
 
+/// Filtered folders keep one-click open. Filtered files follow the column click
+/// count and single-click preview setting, the same as an unfiltered row.
+fn filtered_click_kind(
+    state: &ViewState,
+    entry: &FileEntry,
+    recursive: bool,
+) -> Option<PendingActivationKind> {
+    if entry.is_directory() {
+        return Some(if recursive && state.browser.is_chooser_mode() {
+            PendingActivationKind::ChooserSearchNavigate
+        } else if recursive {
+            PendingActivationKind::RecursiveSearch
+        } else {
+            PendingActivationKind::Mapped
+        });
+    }
+    if state.browser.is_chooser_mode() {
+        return None;
+    }
+    let preview = entry_responds_to_preview_click(entry, state.single_click_previews.get());
+    if is_trash_location(&entry.location) {
+        return preview.then_some(filtered_preview_kind(recursive));
+    }
+    if should_activate_single_click(1, false, state.columns_click_activation.get(), false, false) {
+        return Some(if recursive {
+            PendingActivationKind::RecursiveSearch
+        } else {
+            PendingActivationKind::Mapped
+        });
+    }
+    preview.then_some(filtered_preview_kind(recursive))
+}
+
+fn filtered_preview_kind(recursive: bool) -> PendingActivationKind {
+    if recursive {
+        PendingActivationKind::RecursivePreview
+    } else {
+        PendingActivationKind::Standard { preview: true }
+    }
+}
+
 fn open_row_in_new(state: &Rc<ViewState>, location: &Location, action: &str) {
     let uri = crate::adapters::gio_file_for_location(location)
         .uri()
@@ -551,17 +592,10 @@ pub(super) fn column_rows(
                         search_results_for_click
                             .borrow()
                             .get(position as usize)
-                            .map(|item| {
-                                let kind = if state.browser.is_chooser_mode() {
-                                    PendingActivationKind::ChooserSearchNavigate
-                                } else {
-                                    PendingActivationKind::RecursiveSearch
-                                };
-                                (
-                                    position as usize,
-                                    crate::model::Location::local(item.path.clone()),
-                                    kind,
-                                )
+                            .and_then(|item| {
+                                let entry = crate::ui::browser::search_result_entry(item);
+                                let kind = filtered_click_kind(&state, &entry, true)?;
+                                Some((position as usize, entry.location, kind))
                             })
                     } else {
                         map_for_click
@@ -569,21 +603,8 @@ pub(super) fn column_rows(
                             .and_then(|source_position| {
                                 let entry = state.browser.entry_at(depth, source_position)?;
                                 state.browser.select(depth, source_position);
-                                if is_trash_location(&entry.location) && !entry.is_directory() {
-                                    if state.single_click_previews.get() {
-                                        return Some((
-                                            source_position,
-                                            entry.location,
-                                            PendingActivationKind::Standard { preview: true },
-                                        ));
-                                    }
-                                    return None;
-                                }
-                                Some((
-                                    source_position,
-                                    entry.location,
-                                    PendingActivationKind::Mapped,
-                                ))
+                                let kind = filtered_click_kind(&state, &entry, false)?;
+                                Some((source_position, entry.location, kind))
                             })
                     };
                     if let Some((position, location, kind)) = pending {
@@ -776,6 +797,19 @@ pub(super) fn column_rows(
                             &search_results_for_release,
                             pending.position as u32,
                         );
+                    }
+                }
+                PendingActivationKind::RecursivePreview => {
+                    let Some(item) = search_results_for_release
+                        .borrow()
+                        .get(pending.position)
+                        .cloned()
+                    else {
+                        return;
+                    };
+                    let entry = crate::ui::browser::search_result_entry(&item);
+                    if pending.can_activate(&entry.location) && state.single_click_previews.get() {
+                        state.browser.request_preview(entry);
                     }
                 }
             }
