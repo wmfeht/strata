@@ -32,6 +32,15 @@ git fetch origin main
 git checkout -B <branch> origin/main
 ```
 
+## Cloud Agent install
+
+`scripts/cloud-agent-install.sh` is the install entrypoint. It installs the
+Ubuntu development libraries the Rust build probes, including
+`libgstreamer1.0-dev` and `libgstreamer-plugins-base1.0-dev`, checks those
+pkg-config modules, and pins Rust to 1.98.1. It does not run `apt-get upgrade`
+or `rustup update stable`. The saved environment install runs that script when
+it is on the checkout, and otherwise runs the same steps inline.
+
 ## Confirm the start script ran
 
 The personal environment `start` script (`/tmp/cursor/start-user/start-user.sh`)
